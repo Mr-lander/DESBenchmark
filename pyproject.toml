@@ -1,0 +1,115 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fms-bench"
+version = "0.1.0"
+description = "Holonic industrial scheduling benchmark over a shared discrete-event simulation world."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "FMS-Bench Contributors" }
+]
+dependencies = [
+  "numpy>=1.24,<3.0",
+  "gymnasium>=0.29,<1.1",
+  "stable-baselines3>=2.3,<3.0",
+  "torch>=2.2",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0,<9.0",
+]
+framework_ag2 = [
+  "ag2>=0.11,<1.0",
+]
+framework_agentscope = [
+  "agentscope>=1.0,<2.0",
+  "openai>=1.0,<3.0",
+]
+framework_crewai = [
+  "crewai>=1.9,<1.10",
+]
+framework_google_adk = [
+  "google-adk>=1.27,<2.0",
+]
+framework_langgraph = [
+  "langgraph>=1.1,<2.0",
+  "openai>=1.0,<3.0",
+]
+framework_spade = [
+  "spade>=4.1,<5.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["fms_bench*"]
+
+[tool.uv]
+conflicts = [
+  [
+    { extra = "framework_ag2" },
+    { extra = "framework_agentscope" },
+  ],
+  [
+    { extra = "framework_ag2" },
+    { extra = "framework_crewai" },
+  ],
+  [
+    { extra = "framework_ag2" },
+    { extra = "framework_google_adk" },
+  ],
+  [
+    { extra = "framework_ag2" },
+    { extra = "framework_langgraph" },
+  ],
+  [
+    { extra = "framework_ag2" },
+    { extra = "framework_spade" },
+  ],
+  [
+    { extra = "framework_agentscope" },
+    { extra = "framework_crewai" },
+  ],
+  [
+    { extra = "framework_agentscope" },
+    { extra = "framework_google_adk" },
+  ],
+  [
+    { extra = "framework_agentscope" },
+    { extra = "framework_langgraph" },
+  ],
+  [
+    { extra = "framework_agentscope" },
+    { extra = "framework_spade" },
+  ],
+  [
+    { extra = "framework_crewai" },
+    { extra = "framework_google_adk" },
+  ],
+  [
+    { extra = "framework_crewai" },
+    { extra = "framework_langgraph" },
+  ],
+  [
+    { extra = "framework_crewai" },
+    { extra = "framework_spade" },
+  ],
+  [
+    { extra = "framework_google_adk" },
+    { extra = "framework_langgraph" },
+  ],
+  [
+    { extra = "framework_google_adk" },
+    { extra = "framework_spade" },
+  ],
+  [
+    { extra = "framework_langgraph" },
+    { extra = "framework_spade" },
+  ],
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

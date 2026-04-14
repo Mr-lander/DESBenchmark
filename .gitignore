@@ -1,0 +1,15 @@
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.uv_envs/
+.omx/
+.worktrees/
+.cache_repo_inspect/
+dist/
+heartbeat.log
+progress.log
+*.log
+tests/_tmp_*/
+*.tmp
