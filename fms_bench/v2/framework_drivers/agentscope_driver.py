@@ -6,6 +6,7 @@ import inspect
 import json
 import sys
 from typing import Any, Mapping
+from urllib import request as urllib_request
 
 from .base import FrameworkBackedTreeDriver
 from .deterministic_kernel import DeterministicCoordinationKernel
@@ -404,6 +405,7 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
         request_timeout: float | None = None,
         request_retries: int = 2,
         retry_backoff_seconds: float = 0.5,
+        retry_backoff_max_seconds: float = 60.0,
     ) -> None:
         self.llm_backend = AGENTSCOPE_LLM_BACKEND
         self.model_name = str(model_name)
@@ -415,6 +417,7 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
         )
         self.request_retries = max(int(request_retries), 0)
         self.retry_backoff_seconds = max(float(retry_backoff_seconds), 0.0)
+        self.retry_backoff_max_seconds = max(float(retry_backoff_max_seconds), 0.0)
         self._llm_model: Any | None = None
         super().__init__(
             routing_penalty=routing_penalty,
@@ -434,15 +437,20 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
         )
         return payload
 
+    def _select_framework_action(
+        self,
+        *,
+        agent_id: str,
+        agent_view: Mapping[str, object],
+    ) -> int:
+        return self._select_llm_action(
+            agent_id=agent_id,
+            agent_view=agent_view,
+        )
+
     def reset_episode(self) -> None:
         super().reset_episode()
         self._llm_model = None
-        if self._framework_available and self._llm_configured():
-            try:
-                self._llm_model = self._build_llm_model()
-            except Exception:
-                # Keep fallback contract path available in non-strict development environments.
-                self._llm_model = None
 
     def _ensure_native_pipeline(self, agent_id: str) -> dict[str, object]:
         from agentscope.pipeline import SequentialPipeline
@@ -480,7 +488,6 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
         agent_id: str,
         agent_view: Mapping[str, object],
     ) -> int:
-        llm_model = self._llm_model
         legal_actions = _legal_action_indices(agent_view)
         if not legal_actions:
             self._record_decision_source(
@@ -491,7 +498,7 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
             )
             return 0
 
-        if llm_model is None:
+        if not self._llm_configured():
             selected = self._select_contract_action(
                 agent_id=agent_id,
                 agent_view=agent_view,
@@ -504,20 +511,29 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
             )
             return int(selected)
 
+        last_failure: dict[str, object] | None = None
         for attempt in range(self.request_retries + 1):
+            selected: int | None = None
+            current_failure: dict[str, object] | None = None
             try:
-                response = llm_model(
-                    _build_llm_messages(
+                response_text = await self._request_openai_compat_completion_async(
+                    messages=_build_llm_messages(
                         agent_id=agent_id,
                         agent_view=agent_view,
                     )
                 )
-                if inspect.isawaitable(response):
-                    response = await response
-                selected = _parse_llm_action_text(
-                    _extract_chat_text(response),
-                    legal_actions=legal_actions,
-                )
+                if not response_text:
+                    current_failure = {"failure_kind": "empty_response"}
+                else:
+                    selected = _parse_llm_action_text(
+                        response_text,
+                        legal_actions=legal_actions,
+                    )
+                    if selected is None:
+                        current_failure = {
+                            "failure_kind": "invalid_response",
+                            "raw_response": response_text,
+                        }
                 if selected is not None:
                     self._record_decision_source(
                         agent_id=agent_id,
@@ -526,10 +542,29 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
                         legal_actions=legal_actions,
                     )
                     return int(selected)
-            except Exception:
-                pass
-            if attempt < self.request_retries and self.retry_backoff_seconds > 0.0:
-                await asyncio.sleep(self.retry_backoff_seconds * float(attempt + 1))
+            except Exception as exc:
+                current_failure = {
+                    "failure_kind": "exception",
+                    "exception": exc,
+                }
+            last_failure = current_failure
+            delay = self._retry_backoff_delay_seconds(attempt)
+            if attempt < self.request_retries and delay > 0.0:
+                await asyncio.sleep(delay)
+
+        if last_failure is not None:
+            self._record_decision_failure(
+                agent_id=agent_id,
+                attempt=self.request_retries,
+                failure_kind=str(last_failure["failure_kind"]),
+                legal_actions=legal_actions,
+                raw_response=last_failure.get("raw_response"),
+                exception=(
+                    last_failure.get("exception")
+                    if isinstance(last_failure.get("exception"), BaseException)
+                    else None
+                ),
+            )
 
         selected = self._select_contract_action(
             agent_id=agent_id,
@@ -542,6 +577,114 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
             legal_actions=legal_actions,
         )
         return int(selected)
+
+    def _retry_backoff_delay_seconds(self, attempt: int) -> float:
+        if self.retry_backoff_seconds <= 0.0:
+            return 0.0
+        delay = self.retry_backoff_seconds * float(2 ** max(int(attempt), 0))
+        if self.retry_backoff_max_seconds > 0.0:
+            delay = min(delay, self.retry_backoff_max_seconds)
+        return delay
+
+    async def _request_openai_compat_completion_async(
+        self,
+        *,
+        messages: list[dict[str, str]],
+    ) -> str | None:
+        return await asyncio.to_thread(
+            self._request_openai_compat_completion,
+            messages=messages,
+        )
+
+    def _request_openai_compat_completion(
+        self,
+        *,
+        messages: list[dict[str, str]],
+    ) -> str | None:
+        if not self.model_name or not self.base_url:
+            return None
+
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            **build_openai_compat_benchmark_generation_kwargs(
+                model_name=self.model_name,
+                temperature=self.temperature,
+            ),
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0",
+        }
+        if self.api_key is not None:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        request = urllib_request.Request(
+            url=self._chat_completions_url(),
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        timeout = self.request_timeout
+        if timeout is None or timeout <= 0.0:
+            with urllib_request.urlopen(request) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        else:
+            with urllib_request.urlopen(request, timeout=timeout) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        return self._extract_openai_compat_content(response_payload)
+
+    def _chat_completions_url(self) -> str:
+        assert self.base_url is not None
+        return self.base_url.rstrip("/") + "/chat/completions"
+
+    @staticmethod
+    def _extract_openai_compat_content(response: Mapping[str, object]) -> str | None:
+        choices = response.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return None
+        message = dict(choices[0]).get("message")
+        if not isinstance(message, Mapping):
+            return None
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            for item in content:
+                if isinstance(item, Mapping):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        text_parts.append(text)
+            if text_parts:
+                return "".join(text_parts)
+        return None
+
+    async def _invoke_llm_model(
+        self,
+        *,
+        llm_model: Any,
+        agent_id: str,
+        agent_view: Mapping[str, object],
+    ) -> object:
+        async def _resolve_response() -> object:
+            response = llm_model(
+                _build_llm_messages(
+                    agent_id=agent_id,
+                    agent_view=agent_view,
+                )
+            )
+            if inspect.isawaitable(response):
+                return await response
+            return response
+
+        if self.request_timeout is None or self.request_timeout <= 0.0:
+            return await _resolve_response()
+        return await asyncio.wait_for(
+            _resolve_response(),
+            timeout=self.request_timeout,
+        )
 
     def _llm_configured(self) -> bool:
         return bool(self.model_name) and bool(self.base_url)
@@ -560,6 +703,7 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
             stream=False,
             client_kwargs=client_kwargs or None,
             generate_kwargs=build_openai_compat_benchmark_generation_kwargs(
+                model_name=self.model_name,
                 temperature=self.temperature,
             ),
         )

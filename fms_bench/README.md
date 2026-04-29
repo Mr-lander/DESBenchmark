@@ -1,6 +1,8 @@
-# FMS-Bench
+# DESBench Core Package
 
-A data-driven flexible manufacturing system benchmark with an event-driven SMDP structure.
+Core Python package for DESBench, a data-driven discrete-event scheduling benchmark with multi-agent coordination protocols.
+
+The import path remains `fms_bench` for compatibility with the existing experiment code and tests. The repository and benchmark-facing name are `DESBench`.
 
 ## Features
 

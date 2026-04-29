@@ -1,4 +1,4 @@
-"""Gymnasium environment wrapper for FMS-Bench."""
+"""Gymnasium environment wrapper for DESBench."""
 
 from __future__ import annotations
 

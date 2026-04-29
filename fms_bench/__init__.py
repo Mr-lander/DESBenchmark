@@ -1,4 +1,4 @@
-"""FMS-Bench package."""
+"""DESBench package."""
 
 from .baselines import (
     BaselinePolicy,

@@ -516,6 +516,14 @@ class TreeIntercellEnv:
             and self.current_assignment_cell.get(option.job_id) == int(cell_id)
         ]
 
+    def _runtime_dispatch_options(self) -> List[DispatchOption]:
+        return [
+            option
+            for option in self.simulator.get_dispatch_options()
+            if self.current_assignment_cell.get(option.job_id)
+            == self.assembly.machine_to_cell.get(option.machine_id)
+        ]
+
     def _advance_until_plant_decision(self) -> Dict[str, Any]:
         return self._advance_until_decision(auto_dispatch=False, stop_on_dispatch=False)
 
@@ -524,6 +532,7 @@ class TreeIntercellEnv:
         *,
         auto_dispatch: bool,
         stop_on_dispatch: bool,
+        dispatch_scope: str = "raw",
     ) -> Dict[str, Any]:
         del auto_dispatch
         energy_kwh_step = 0.0
@@ -534,6 +543,13 @@ class TreeIntercellEnv:
         event_records: List[Dict[str, Any]] = []
         start_time = self.simulator.time
         deadlocked = False
+
+        if dispatch_scope == "runtime":
+            dispatch_options_provider = self._runtime_dispatch_options
+        elif dispatch_scope == "raw":
+            dispatch_options_provider = self.simulator.get_dispatch_options
+        else:
+            raise ValueError(f"Unsupported dispatch_scope: {dispatch_scope}")
 
         def on_advance(start: float, end: float, machines: Dict[int, Any]) -> None:
             nonlocal energy_kwh_step, energy_cost_step, carbon_kg_step
@@ -557,14 +573,16 @@ class TreeIntercellEnv:
                 break
             if self._valid_release_cells():
                 break
-            dispatch_options = self.simulator.get_dispatch_options()
+            dispatch_options = dispatch_options_provider()
             if dispatch_options and stop_on_dispatch:
                 break
 
             transition = self.simulator.run_until_decision(
                 advance_hook=on_advance,
                 stop_condition=lambda: bool(self._valid_release_cells())
-                or (stop_on_dispatch and bool(self.simulator.get_dispatch_options())),
+                or (stop_on_dispatch and bool(dispatch_options_provider())),
+                dispatch_condition=lambda: stop_on_dispatch
+                and bool(dispatch_options_provider()),
             )
             event_log.extend(list(transition["events"]))
             event_records.extend(list(transition.get("event_records", [])))

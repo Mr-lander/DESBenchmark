@@ -1,4 +1,4 @@
-"""Sampling utilities for FMS-Bench stochasticity."""
+"""Sampling utilities for DESBench stochasticity."""
 
 from __future__ import annotations
 

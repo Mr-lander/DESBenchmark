@@ -1,4 +1,4 @@
-"""Core dataclasses for FMS-Bench."""
+"""Core dataclasses for DESBench."""
 
 from __future__ import annotations
 

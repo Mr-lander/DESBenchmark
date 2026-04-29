@@ -1,169 +1,190 @@
-# A3C9 Benchmark Public Export
+# DESBench
 
-This repository is a clean first public export of the runnable A3C9 benchmark slice from the larger internal benchmark workspace.
+DESBench is a multi-agent coordination benchmark for shared discrete-event manufacturing scheduling. It evaluates how different coordination paradigms organize Plant, Area, and Cell decision makers over the same evolving factory state.
 
-Current public scope:
+The benchmark is designed around swappable axes:
 
-- shared DES manufacturing benchmark code under `fms_bench/`
-- runnable A3C9 Category B benchmark surface
-- native framework runner entrypoints for `LangGraph` and `AgentScope`
-- minimal benchmark instance files required by the shipped code and focused tests
-- focused tests for A3C9 runtime contracts and the core runtime substrate
+```text
+model/controller x framework implementation x coordination paradigm x benchmark suite/profile x seed
+```
 
-Not included in this export:
+The main experimental variable is the coordination paradigm, also called the authority mode or protocol `Gamma` in the paper. Frameworks such as AgentScope and LangGraph are implementation carriers over the same benchmark-visible controller payload. A benchmark suite such as A5C12 is an instance family; it can be replaced or extended without changing the paradigm/framework abstraction.
 
-- result artifacts
-- checked-in experiment outputs
-- AI orchestration state
-- worktrees, logs, scratch analysis files
-- paper bundles and release packaging history
+## What Is Included
 
-## A3C9
+This source package includes:
 
-`A3C9` is the Category B inter-cell benchmark family with:
+- A shared event-driven scheduling runtime with Plant, Area, and Cell decision roles.
+- The headline A5C12 inter-cell suite and an included A3C9 standard suite.
+- Four official coordination paradigms: `centralized`, `hierarchical`, `mediated_heterarchical_cnp`, and `holonic_hybrid`.
+- Framework-backed controller adapters for the formal A5C12 matrix: `agentscope` and `langgraph`.
+- Focused tests, no-key smoke runs, extension docs, and minimal public fixture data.
 
-- `tree_a3_c9` topology
-- `3` areas
-- `9` cells
-- one shared DES world
-- explicit setup, transport, finite inbound admission, and downstream blocking
+This repository does not include paper result CSVs, raw provider traces, long run logs, virtual environments, or private orchestration state. Generated run artifacts should stay outside git until reviewed.
 
-The main public runnable surface in this export is `intercell_a3c9_wide`.
+## Design Reference
 
-That surface expands into:
+The README structure follows common agent/MAS benchmark conventions:
 
-- `3` scenario profiles
-- `4` authority modes
-- `12` benchmark cases total
+- AgentBench-style multi-environment framing and quick-start entry points.
+- Tau-bench-style provider configuration through environment variables and runnable task examples.
+- AutoGenBench-style separation between running, tabulating/reviewing, and trace/result artifacts.
+- MultiAgentBench and BattleAgentBench-style emphasis on multi-agent coordination protocols, fine-grained task axes, and collaboration/competition diagnostics.
 
-Suite and authority contracts:
+In this repository those conventions map to `suite/profile`, `paradigm`, `framework`, `controller/model`, and `seed`.
 
-- [docs/tree_runtime_category_b_a3c9_suite_matrix_v1.md](docs/tree_runtime_category_b_a3c9_suite_matrix_v1.md)
-- [docs/2026-04-10-category-b-authority-modes.md](docs/2026-04-10-category-b-authority-modes.md)
+## Repository Map
+
+| Goal | Start here |
+| --- | --- |
+| Understand the benchmark abstraction | [docs/benchmark_overview.md](docs/benchmark_overview.md) |
+| Understand available suites/profiles | [docs/suites.md](docs/suites.md) |
+| Understand A5C12 | [docs/a5c12_benchmark.md](docs/a5c12_benchmark.md) |
+| Understand A3C9 | [docs/a3c9_benchmark.md](docs/a3c9_benchmark.md) |
+| Understand paradigms / authority modes | [docs/paradigms.md](docs/paradigms.md), `fms_bench/v2/authority_modes.py` |
+| Understand framework adapters | [docs/framework_adapters.md](docs/framework_adapters.md), `fms_bench/v2/framework_drivers/base.py` |
+| Add a suite, paradigm, framework, or controller | [docs/extension_guide.md](docs/extension_guide.md) |
+| Install, smoke test, and run experiments | [docs/reproducibility.md](docs/reproducibility.md) |
+
+Main runnable entry points:
+
+- `examples/run_tree_runtime_v2_framework_native.py`: run a suite through one framework-backed controller line.
+- `examples/run_tree_runtime_v2_framework_case_shard.py`: run explicit case shards into a shared output root.
+- `examples/run_tree_runtime_v2_category_b.py`: Category B utilities retained for compatibility and review.
+
+## Installation
+
+Use Python 3.12 or newer. `uv` is recommended because optional framework dependencies can conflict and should be installed in isolated environments.
+
+Install the core package and test dependencies:
+
+```bash
+uv sync --extra test
+```
+
+Pip fallback:
+
+```bash
+python -m pip install -e ".[test]"
+```
+
+Optional native framework packages are exposed as extras. Install only the framework you are testing in a given environment:
+
+```bash
+uv sync --extra test --extra framework_langgraph
+uv sync --extra test --extra framework_agentscope
+```
+
+The no-key smoke path works without native framework packages by using contract-stub behavior.
 
 ## Quick Start
 
-Install dependencies:
+Run focused tests:
 
 ```bash
-pip install -r requirements.txt
+uv run pytest tests/test_tree_runtime_env.py -q
+uv run pytest tests/test_experiment_runner.py -q
 ```
 
-Run the Category B wrapper:
+Run a no-key A5C12 smoke case:
 
 ```bash
-python examples/run_tree_runtime_v2_category_b.py --framework langgraph --suite intercell_a3c9_wide
+uv run python examples/run_tree_runtime_v2_framework_native.py \
+  --framework langgraph \
+  --suite intercell_a5c12_harder \
+  --authority-mode holonic_hybrid \
+  --case-limit 1 \
+  --seed-limit 1
 ```
 
-Run the native framework runner directly:
+The default `--llm-backend none` path does not call any provider.
 
-```bash
-python examples/run_tree_runtime_v2_framework_native.py --framework agentscope --suite intercell_a3c9_wide
+## Run A Real Provider
+
+Real LLM runs use an OpenAI-compatible chat backend. Keep credentials in environment variables, not checked-in files.
+
+PowerShell:
+
+```powershell
+$env:OPENAI_API_KEY = "<provider-token>"
+uv run python examples/run_tree_runtime_v2_framework_native.py `
+  --framework langgraph `
+  --suite intercell_a5c12_harder `
+  --authority-mode centralized `
+  --llm-backend openai_compat `
+  --llm-model "<model-id>" `
+  --llm-base-url "https://<provider-host>/v1" `
+  --llm-timeout 90 `
+  --llm-retries 7 `
+  --llm-retry-backoff-seconds 1 `
+  --llm-retry-backoff-max-seconds 60
 ```
 
-Run only one authority mode:
+For full reporting, remove debug limits such as `--case-limit` and `--seed-limit`, then review the exported suite summary and framework decision audit fields.
 
-```bash
-python examples/run_tree_runtime_v2_framework_native.py --framework langgraph --suite intercell_a3c9_wide --authority-mode hierarchical
-```
+## Headline Release Surface: A5C12
 
-Debug with fewer cases or seeds:
+`intercell_a5c12_harder` is the headline release suite in this source package:
 
-```bash
-python examples/run_tree_runtime_v2_framework_native.py --framework langgraph --suite intercell_a3c9_wide --case-limit 1 --seed-limit 1
-```
+- topology: `tree_a5_c12`
+- composition: `brandimarte_ordertrap_twelve_cell`
+- profiles: `branch_pressure_k4_tm115_bk4`, `cluster_pull_k4_tm120_bk4`, `late_commit_soft_k4_tm125_bk4`
+- paradigms: `centralized`, `hierarchical`, `mediated_heterarchical_cnp`, `holonic_hybrid`
+- formal frameworks: `agentscope`, `langgraph`
 
-## Repository Tree
+For one LLM/controller line:
 
 ```text
-FMS-Benchmark/
-|-- README.md
-|-- LICENSE
-|-- pyproject.toml
-|-- requirements.txt
-|-- uv.lock
-|-- docs/
-|   |-- tree_runtime_category_b_a3c9_suite_matrix_v1.md
-|   |-- 2026-04-10-category-b-authority-modes.md
-|   `-- benchmark_seed_protocol_v1.json
-|-- examples/
-|   |-- run_tree_runtime_v2_category_b.py
-|   `-- run_tree_runtime_v2_framework_native.py
-|-- fms_bench/
-|   |-- core benchmark package
-|   `-- v2/
-|       `-- runtime truth layer
-|-- tests/
-|   `-- focused A3C9 and runtime tests
-`-- external/
-    `-- benchmarks/flexible jobshop/instances/
+3 profiles x 4 paradigms x 2 frameworks = 24 cases
 ```
 
-## `fms_bench/` File Guide
+With 10 test seeds per case:
 
-### Package root
+```text
+24 cases x 10 seeds = 240 episodes
+```
 
-- `__init__.py`: public package exports.
-- `README.md`: package-level quick start and module summary.
-- `config.py`: benchmark defaults, profile IDs, and top-level configuration objects.
-- `models.py`: core scheduling dataclasses such as jobs, operations, and options.
-- `holonic_types.py`: plant/cell config objects, typed contracts, events, messages, and summaries.
-- `data_loader.py`: parsers for public JSP/FJSP instance files.
-- `instance_catalog.py`: local catalog of supported benchmark families and their source directories.
-- `suite_builder.py`: builds multi-cell plant assemblies from public instance families.
-- `tree_builder.py`: constructs stable Plant/Area/Cell topologies such as `tree_a3_c9`.
-- `distributions.py`: shared stochastic sampling helpers.
-- `simulator.py`: shared DES kernel and event queue progression logic.
-- `constraints.py`: energy, tariff, carbon, and resource-accounting helpers.
-- `rewards.py`: reward and interval cost decomposition.
-- `env.py`: flat Gym-style environment wrapper.
-- `plant_env.py`: plant-level environment over the shared DES world.
-- `shared_backlog_env.py`: shared-backlog assignment environment.
-- `tree_env.py`: earlier tree benchmark environment path.
-- `tree_shared_backlog_env.py`: tree plus shared-backlog environment path.
-- `tree_intercell_env.py`: Category B inter-cell environment substrate with setup, transport, buffer, and blocking semantics.
-- `evaluation.py`: flat-environment evaluation helpers.
-- `holonic_evaluation.py`: multi-seed benchmark evaluation, summaries, and result serialization.
-- `experiment_runner.py`: suite builders, benchmark item identity generation, and batch runner entrypoints.
-- `baselines.py`: non-MAS heuristic baselines.
-- `mas_baselines.py`: MAS-style baselines such as Contract-Net variants.
-- `tree_policies.py`: tree-runtime policy helpers and hand-written policy logic.
-- `arrival_profiles.py`: named arrival-process profiles.
-- `due_date_profiles.py`: named due-date profiles.
-- `setup_profiles.py`: named setup/changeover profiles.
-- `failure_profiles.py`: named disturbance/failure profiles.
-- `authority_profiles.py`: named numeric/energy/carbon profile overlays.
-- `paper_artifacts.py`: builds publication-oriented derived tables and report assets.
-- `trace_figures.py`: derives trace-facing figure inputs and reports.
-- `topology_replay.py`: builds replay artifacts over the topology graph.
-- `release_manifest.py`: machine-readable release metadata helpers.
-- `instances/`: tiny local test instance data packaged with the repo.
+## Included Standard Suite: A3C9
 
-### `fms_bench/v2/`
+`intercell_a3c9_wide` is also included as a standard smaller suite:
 
-- `__init__.py`: exports the v2 runtime surface.
-- `types.py`: v2 runtime dataclasses and strongly typed protocol structures.
-- `task_semantics.py`: work package, contract, and commitment semantics.
-- `event_interpreter.py`: translates DES events into benchmark-visible decision epochs.
-- `area_runtime.py`: runtime logic for Area agents.
-- `cell_runtime.py`: runtime logic for Cell agents.
-- `runtime_ledger.py`: settlement, completion, reward, and accounting ledger.
-- `tree_runtime_env.py`: interpreter-driven v2 tree runtime on top of the shared DES world.
-- `intercell_tree_runtime_env.py`: Category B A3C9-capable inter-cell v2 runtime.
-- `authority_modes.py`: frozen authority-mode definitions such as `centralized`, `hierarchical`, `mediated_heterarchical_cnp`, and `holonic_hybrid`.
-- `controller_api.py`: legal controller boundary and adapter helpers.
-- `controller_families.py`: shared controller-family wiring.
-- `controller_payloads.py`: structured payloads exchanged by controller-facing runtime code.
-- `external_controller_adapter.py`: adapter for external-session or out-of-process controllers.
-- `external_tree_drivers.py`: stronger external controller-family implementations.
-- `framework_envs.py`: framework-specific environment metadata and install expectations.
-- `learned_tree_driver.py`: learned controller path.
-- `rl_tree_driver.py`: RL-specific driver path.
-- `category_b_controller_families.py`: Category B controller-family helpers and selectors.
-- `framework_drivers/`: framework-specific drivers for LangGraph, AgentScope, AG2, CrewAI, Google ADK, and SPADE.
+- topology: `tree_a3_c9`
+- composition: `brandimarte_ordertrap_nine_cell`
+- profiles: `balanced_branching_anchor`, `cross_area_tradeoff`, `late_stage_reversal`
+- paradigms: `centralized`, `hierarchical`, `mediated_heterarchical_cnp`, `holonic_hybrid`
+- formal frameworks: `agentscope`, `langgraph`
 
-## Notes
+It has the same 24-case per-model shape as A5C12, but it is a separate suite and should be reported with `suite_id=intercell_a3c9_wide`.
 
-- This export is intentionally code-first.
-- It is designed to make the A3C9 benchmark slice runnable without carrying internal result history.
-- If you publish frozen tables later, add a separate `results/` or `artifacts/` directory rather than mixing them into the code root.
+See [docs/suites.md](docs/suites.md) for how A5C12 and A3C9 fit into the broader suite abstraction.
+
+## Extending The Benchmark
+
+Most extensions belong to one of four layers:
+
+- Add a suite/profile when the environment instance, topology, disturbance profile, or difficulty surface changes.
+- Add a paradigm when the research question changes authority distribution or coordination protocol `Gamma`.
+- Add a framework when the same controller contract should be realized through a new orchestration library.
+- Add a controller/model when only the action-selection policy changes.
+
+See [docs/extension_guide.md](docs/extension_guide.md) for registration points, tests, and validity checks.
+
+## Result Boundary
+
+Report only completed, reviewed runs. For real-provider runs, inspect:
+
+- expected case and seed coverage
+- `framework_llm_decision_count`
+- `framework_fallback_contract_decision_count`
+- `framework_no_legal_action_count`
+- `framework_decision_failure_trace`
+
+Raw traces and run directories are intentionally gitignored. Promote only reviewed summaries into paper or release materials.
+
+## Citation
+
+If you use this benchmark before a formal citation file is added, cite the accompanying DESBench paper draft and include the repository commit hash used for your experiments.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

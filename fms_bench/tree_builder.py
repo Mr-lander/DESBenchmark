@@ -24,6 +24,7 @@ class TreeTopology:
 def build_tree_topology(
     cell_configs: Iterable[PlantCellConfig],
     area_count: int,
+    area_partitions: Iterable[Iterable[int]] | None = None,
 ) -> TreeTopology:
     configs = list(cell_configs)
     if not configs:
@@ -34,14 +35,28 @@ def build_tree_topology(
         raise ValueError("area_count cannot exceed the number of cells")
 
     ordered_cell_ids = sorted(config.cell_id for config in configs)
-    chunk_sizes = _balanced_chunk_sizes(len(ordered_cell_ids), area_count)
     areas: Dict[int, AreaSpec] = {}
     cell_to_area: Dict[int, int] = {}
-    cursor = 0
+    if area_partitions is not None:
+        normalized_partitions = [
+            [int(cell_id) for cell_id in area_cell_ids]
+            for area_cell_ids in area_partitions
+        ]
+        if len(normalized_partitions) != area_count:
+            raise ValueError("area_partitions must match area_count")
+        flattened = [cell_id for area_cell_ids in normalized_partitions for cell_id in area_cell_ids]
+        if sorted(flattened) != ordered_cell_ids:
+            raise ValueError("area_partitions must contain each cell id exactly once")
+        partitioned_cells = normalized_partitions
+    else:
+        chunk_sizes = _balanced_chunk_sizes(len(ordered_cell_ids), area_count)
+        cursor = 0
+        partitioned_cells = []
+        for chunk_size in chunk_sizes:
+            partitioned_cells.append(ordered_cell_ids[cursor : cursor + chunk_size])
+            cursor += chunk_size
 
-    for area_id, chunk_size in enumerate(chunk_sizes):
-        area_cell_ids = ordered_cell_ids[cursor : cursor + chunk_size]
-        cursor += chunk_size
+    for area_id, area_cell_ids in enumerate(partitioned_cells):
         areas[area_id] = AreaSpec(
             area_id=area_id,
             label=f"area_{area_id}",

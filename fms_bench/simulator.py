@@ -1,4 +1,4 @@
-"""Event-driven discrete-event simulation core for FMS-Bench."""
+"""Event-driven discrete-event simulation core for DESBench."""
 
 from __future__ import annotations
 
@@ -64,6 +64,7 @@ class DispatchOption:
 
 AdvanceHook = Callable[[float, float, Dict[int, Machine]], None]
 StopHook = Callable[[], bool]
+DispatchHook = Callable[[], bool]
 ExternalEventHandler = Callable[[Dict[str, int | float | str]], bool]
 
 
@@ -429,17 +430,23 @@ class EventDrivenSimulator:
         self,
         advance_hook: Optional[AdvanceHook] = None,
         stop_condition: Optional[StopHook] = None,
+        dispatch_condition: Optional[DispatchHook] = None,
     ) -> Dict[str, object]:
         start_time = self.time
         event_kinds: List[str] = []
         event_records: List[Dict[str, object]] = []
+        dispatch_ready = (
+            self.get_dispatch_options
+            if dispatch_condition is None
+            else dispatch_condition
+        )
 
         while True:
             if self.is_done():
                 break
             if stop_condition is not None and stop_condition():
                 break
-            if self.get_dispatch_options():
+            if dispatch_ready():
                 break
 
             event = self.events.pop()

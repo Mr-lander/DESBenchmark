@@ -1,4 +1,4 @@
-"""Reward decomposition for FMS-Bench."""
+"""Reward decomposition for DESBench."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class RewardComponents:
 
 
 class RewardModel:
-    """Compute decomposed rewards for FMS-Bench."""
+    """Compute decomposed rewards for DESBench."""
 
     def __init__(
         self,

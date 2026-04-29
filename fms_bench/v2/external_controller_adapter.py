@@ -347,13 +347,41 @@ class ExternalControllerSession:
         }
 
     def _advance_idle_epochs(self) -> None:
-        while not self._terminated and not self._truncated and not self.env.agents_to_act():
-            if not hasattr(self.env, "advance_idle_epoch"):
-                break
-            result = self.env.advance_idle_epoch()
-            self._last_info = result.info
-            self._terminated = bool(result.terminated)
-            self._truncated = bool(result.truncated)
+        while not self._terminated and not self._truncated:
+            if not self.env.agents_to_act():
+                if not hasattr(self.env, "advance_idle_epoch"):
+                    break
+                result = self.env.advance_idle_epoch()
+                self._last_info = result.info
+                self._terminated = bool(result.terminated)
+                self._truncated = bool(result.truncated)
+                continue
+            if self._auto_resolve_exhausted_plant_accountability_epoch():
+                continue
+            break
+
+    def _auto_resolve_exhausted_plant_accountability_epoch(self) -> bool:
+        current_agents = list(self.env.agents_to_act())
+        if current_agents != ["plant"]:
+            return False
+
+        record = self.env.current_decision_epoch.records_by_agent.get("plant")
+        if record is None or record.functional_loop != "accountability_and_escalation":
+            return False
+        if getattr(record, "decision_kind", None) != "accountability_reroute":
+            return False
+
+        mask = np.asarray(self.adapter.action_mask("plant"), dtype=np.int32)
+        if mask.size <= 0 or np.any(mask > 0):
+            return False
+
+        # Exhausted accountability reroutes are internally resolvable in the
+        # runtime, so do not surface a non-actionable public epoch upstream.
+        result = self.env.step_dict({"plant": 0})
+        self._last_info = result.info
+        self._terminated = bool(result.terminated)
+        self._truncated = bool(result.truncated)
+        return True
 
     def _agent_payload(self, agent_id: str) -> dict[str, SerializedValue]:
         agent_view = self.adapter.observe(agent_id)

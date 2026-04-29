@@ -15,7 +15,10 @@ from .deterministic_kernel import (
     _visible_cell_summaries,
     _visible_machine_summaries,
 )
-from .llm_prompting import build_openai_compat_benchmark_messages
+from .llm_prompting import (
+    build_openai_compat_benchmark_generation_kwargs,
+    build_openai_compat_benchmark_messages,
+)
 
 SPADE_LLM_BACKEND = "openai_compat"
 
@@ -577,8 +580,10 @@ class SPADELLMTreeDriver(SPADETreeDriver):
         payload = {
             "model": self.llm_model,
             "messages": messages,
-            "temperature": 0.0,
-            "max_tokens": 32,
+            **build_openai_compat_benchmark_generation_kwargs(
+                model_name=self.llm_model,
+                temperature=0.0,
+            ),
         }
         headers = {
             "Content-Type": "application/json",

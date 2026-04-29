@@ -15,7 +15,10 @@ from urllib.request import Request, urlopen
 
 from .base import FrameworkBackedTreeDriver
 from .deterministic_kernel import DeterministicCoordinationKernel
-from .llm_prompting import build_openai_compat_benchmark_messages
+from .llm_prompting import (
+    build_openai_compat_benchmark_generation_kwargs,
+    build_openai_compat_benchmark_messages,
+)
 
 
 CREWAI_LLM_BACKEND = "openai_compat"
@@ -436,8 +439,10 @@ class CrewAILLMTreeDriver(CrewAITreeDriver):
                     agent_id=agent_id,
                     agent_view=agent_view,
                 ),
-                "temperature": 0.0,
-                "max_tokens": 32,
+                **build_openai_compat_benchmark_generation_kwargs(
+                    model_name=self.model_name,
+                    temperature=0.0,
+                ),
             },
             ensure_ascii=True,
             separators=(",", ":"),

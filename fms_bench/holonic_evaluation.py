@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 import csv
 import json
 import time
@@ -47,6 +47,68 @@ DECISION_SOURCE_KEYS = (
     'fallback_contract',
     'no_legal_action',
 )
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+class ZeroFallbackViolationError(RuntimeError):
+    """Raised when strict real-llm evaluation observes any fallback decision."""
+
+    def __init__(
+        self,
+        *,
+        policy_name: str,
+        benchmark_item_id: str,
+        episode_id: int,
+        seed: int,
+        fallback_count: int,
+    ) -> None:
+        self.policy_name = str(policy_name)
+        self.benchmark_item_id = str(benchmark_item_id)
+        self.episode_id = int(episode_id)
+        self.seed = int(seed)
+        self.fallback_count = int(fallback_count)
+        super().__init__(
+            "fallback_contract decisions are disallowed for strict real-llm evaluation: "
+            f"policy={self.policy_name} "
+            f"benchmark_item_id={self.benchmark_item_id} "
+            f"episode_id={self.episode_id} "
+            f"seed={self.seed} "
+            f"fallback_count={self.fallback_count}"
+        )
+
+
+class DisallowedDecisionFailureError(RuntimeError):
+    """Raised when response-backed evaluation sees a non-whitelisted failure kind."""
+
+    def __init__(
+        self,
+        *,
+        policy_name: str,
+        benchmark_item_id: str,
+        episode_id: int,
+        seed: int,
+        disallowed_failure_kinds: Iterable[str],
+        allowed_failure_kinds: Iterable[str],
+    ) -> None:
+        self.policy_name = str(policy_name)
+        self.benchmark_item_id = str(benchmark_item_id)
+        self.episode_id = int(episode_id)
+        self.seed = int(seed)
+        self.disallowed_failure_kinds = tuple(
+            sorted(str(kind) for kind in disallowed_failure_kinds)
+        )
+        self.allowed_failure_kinds = tuple(
+            sorted(str(kind) for kind in allowed_failure_kinds)
+        )
+        super().__init__(
+            "framework decision failures are disallowed for response-backed real-llm evaluation: "
+            f"policy={self.policy_name} "
+            f"benchmark_item_id={self.benchmark_item_id} "
+            f"episode_id={self.episode_id} "
+            f"seed={self.seed} "
+            f"allowed_failure_kinds={list(self.allowed_failure_kinds)} "
+            f"disallowed_failure_kinds={list(self.disallowed_failure_kinds)}"
+        )
 
 
 def _compute_total_tardiness(
@@ -641,12 +703,24 @@ class HolonicEvaluator:
         config: Optional[BenchmarkConfig] = None,
         benchmark_item_id: str = 'unspecified',
         env_cls: type[HolonicPlantEnv] = HolonicPlantEnv,
+        progress_callback: ProgressCallback | None = None,
+        progress_decision_interval: int = 5,
+        require_zero_fallback: bool = False,
+        allowed_framework_failure_kinds: Optional[Iterable[str]] = None,
     ) -> None:
         self.cell_configs = list(cell_configs)
         self.config = config or BenchmarkConfig()
         self.benchmark_item_id = benchmark_item_id
         self.benchmark_identity = _parse_benchmark_identity(benchmark_item_id)
         self.env_cls = env_cls
+        self.progress_callback = progress_callback
+        self.progress_decision_interval = max(int(progress_decision_interval), 1)
+        self.require_zero_fallback = bool(require_zero_fallback)
+        self.allowed_framework_failure_kinds = (
+            None
+            if allowed_framework_failure_kinds is None
+            else frozenset(str(kind) for kind in allowed_framework_failure_kinds)
+        )
 
     def _select_action(self, policy: Any, observation: np.ndarray, info: Dict[str, Any]) -> Any:
         if hasattr(policy, 'select_action'):
@@ -688,7 +762,12 @@ class HolonicEvaluator:
         env = self.env_cls(self.cell_configs, config=self.config, seed=seed)
         start_wall_clock = time.perf_counter()
         try:
-            rollout = self._run_episode_rollout(env=env, policy=policy, seed=seed)
+            rollout = self._run_episode_rollout(
+                env=env,
+                policy=policy,
+                episode_id=episode_id,
+                seed=seed,
+            )
             controller_interface_mode = self._controller_interface_mode(policy)
             total_reward = float(rollout['total_reward'])
             decision_steps = int(rollout['decision_steps'])
@@ -731,6 +810,15 @@ class HolonicEvaluator:
             framework_runtime_info = self._framework_runtime_info(policy)
             decision_audit = self._framework_decision_audit(policy)
             decision_source_counts = dict(decision_audit.get('decision_source_counts', {}))
+            fallback_count = int(decision_source_counts.get('fallback_contract', 0))
+            if self.require_zero_fallback and fallback_count > 0:
+                raise ZeroFallbackViolationError(
+                    policy_name=policy_name,
+                    benchmark_item_id=self.benchmark_item_id,
+                    episode_id=episode_id,
+                    seed=seed,
+                    fallback_count=fallback_count,
+                )
             violation_summary = self._structured_violation_summary(final_info)
             failure_metrics = _derive_failure_metrics_from_world_event_trace(
                 episode_world_event_trace
@@ -738,8 +826,7 @@ class HolonicEvaluator:
             branching_metrics = _derive_branching_metrics_from_activation_trace(
                 episode_activation_trace
             )
-
-            return HolonicEpisodeMetrics(
+            episode_metrics = HolonicEpisodeMetrics(
                 episode_id=episode_id,
                 seed=seed,
                 policy_name=policy_name,
@@ -778,6 +865,9 @@ class HolonicEvaluator:
                     ),
                     'framework_decision_source_trace': list(
                         decision_audit.get('decision_source_trace', [])
+                    ),
+                    'framework_decision_failure_trace': list(
+                        decision_audit.get('decision_failure_trace', [])
                     ),
                     'framework_decision_source_counts': decision_source_counts,
                     'framework_llm_decision_count': int(decision_source_counts.get('llm', 0)),
@@ -918,6 +1008,20 @@ class HolonicEvaluator:
                     ),
                 },
             )
+            self._emit_progress(
+                event='episode_completed',
+                policy=policy,
+                episode_id=episode_id,
+                seed=seed,
+                decision_steps=decision_steps,
+                coordination_message_count=coordination_message_count,
+                active_agent_slots=active_agent_slots,
+                info=final_info,
+                runtime_seconds=runtime_seconds,
+                terminated=terminated,
+                truncated=truncated,
+            )
+            return episode_metrics
         finally:
             env.close()
 
@@ -926,17 +1030,29 @@ class HolonicEvaluator:
         *,
         env: Any,
         policy: Any,
+        episode_id: int,
         seed: int,
     ) -> Dict[str, Any]:
         if self._uses_external_session(policy):
-            return self._run_external_session_rollout(env=env, policy=policy, seed=seed)
-        return self._run_native_rollout(env=env, policy=policy, seed=seed)
+            return self._run_external_session_rollout(
+                env=env,
+                policy=policy,
+                episode_id=episode_id,
+                seed=seed,
+            )
+        return self._run_native_rollout(
+            env=env,
+            policy=policy,
+            episode_id=episode_id,
+            seed=seed,
+        )
 
     def _run_native_rollout(
         self,
         *,
         env: Any,
         policy: Any,
+        episode_id: int,
         seed: int,
     ) -> Dict[str, Any]:
         observation, info = env.reset(seed=seed)
@@ -954,6 +1070,19 @@ class HolonicEvaluator:
         terminated = False
         truncated = False
         final_info = info
+        self._emit_progress(
+            event='episode_started',
+            policy=policy,
+            episode_id=episode_id,
+            seed=seed,
+            decision_steps=decision_steps,
+            coordination_message_count=coordination_message_count,
+            active_agent_slots=active_agent_slots,
+            info=info,
+            active_agents=info.get('agents_to_act', []),
+            terminated=terminated,
+            truncated=truncated,
+        )
 
         while not (terminated or truncated):
             active_agent_slots += len(info.get('agents_to_act', []))
@@ -984,6 +1113,11 @@ class HolonicEvaluator:
                 raise RuntimeError('No controller action is available and the environment cannot auto-advance')
             if controller_adapter is not None:
                 action = controller_adapter.step_controller(policy)
+                self._enforce_allowed_framework_failure_kinds(
+                    policy=policy,
+                    episode_id=episode_id,
+                    seed=seed,
+                )
                 step = controller_adapter.step_dict(action)
                 observation = step.observation
                 reward = step.reward
@@ -992,6 +1126,11 @@ class HolonicEvaluator:
                 info = step.info
             else:
                 action = self._select_action(policy, observation, info)
+                self._enforce_allowed_framework_failure_kinds(
+                    policy=policy,
+                    episode_id=episode_id,
+                    seed=seed,
+                )
                 if isinstance(action, dict) and hasattr(env, 'step_dict'):
                     step = env.step_dict(action)
                     observation = step.observation
@@ -1017,6 +1156,18 @@ class HolonicEvaluator:
             total_reward += float(reward)
             decision_steps += 1
             final_info = info
+            self._emit_progress_heartbeat(
+                policy=policy,
+                episode_id=episode_id,
+                seed=seed,
+                decision_steps=decision_steps,
+                coordination_message_count=coordination_message_count,
+                active_agent_slots=active_agent_slots,
+                info=info,
+                active_agents=info.get('agents_to_act', []),
+                terminated=terminated,
+                truncated=truncated,
+            )
 
         return {
             'total_reward': total_reward,
@@ -1039,6 +1190,7 @@ class HolonicEvaluator:
         *,
         env: Any,
         policy: Any,
+        episode_id: int,
         seed: int,
     ) -> Dict[str, Any]:
         from .v2.external_controller_adapter import (
@@ -1066,6 +1218,19 @@ class HolonicEvaluator:
         terminated = bool(decision.get('terminated', False))
         truncated = bool(decision.get('truncated', False))
         final_info = info
+        self._emit_progress(
+            event='episode_started',
+            policy=policy,
+            episode_id=episode_id,
+            seed=seed,
+            decision_steps=decision_steps,
+            coordination_message_count=coordination_message_count,
+            active_agent_slots=active_agent_slots,
+            info=info,
+            active_agents=decision.get('agents_to_act', []),
+            terminated=terminated,
+            truncated=truncated,
+        )
 
         while not (terminated or truncated):
             if not decision.get('agents_to_act', []):
@@ -1074,6 +1239,11 @@ class HolonicEvaluator:
                 break
             active_agent_slots += len(decision.get('agents_to_act', []))
             actions = self._select_external_actions(policy, decision)
+            self._enforce_allowed_framework_failure_kinds(
+                policy=policy,
+                episode_id=episode_id,
+                seed=seed,
+            )
             transition = session.step(actions)
             reward = float(transition['reward'])
             terminated = bool(transition['terminated'])
@@ -1093,6 +1263,18 @@ class HolonicEvaluator:
             decision_steps += 1
             final_info = info
             decision = current_decision
+            self._emit_progress_heartbeat(
+                policy=policy,
+                episode_id=episode_id,
+                seed=seed,
+                decision_steps=decision_steps,
+                coordination_message_count=coordination_message_count,
+                active_agent_slots=active_agent_slots,
+                info=info,
+                active_agents=decision.get('agents_to_act', []),
+                terminated=terminated,
+                truncated=truncated,
+            )
 
         return {
             'total_reward': total_reward,
@@ -1223,6 +1405,139 @@ class HolonicEvaluator:
             return payload
         return {}
 
+    def _enforce_allowed_framework_failure_kinds(
+        self,
+        *,
+        policy: Any,
+        episode_id: int,
+        seed: int,
+    ) -> None:
+        if self.allowed_framework_failure_kinds is None:
+            return
+        decision_audit = self._framework_decision_audit(policy)
+        failure_trace = decision_audit.get('decision_failure_trace', [])
+        if not isinstance(failure_trace, list):
+            return
+        disallowed_failure_kinds = {
+            str(entry.get('failure_kind', '')).strip()
+            for entry in failure_trace
+            if isinstance(entry, Mapping)
+            and str(entry.get('failure_kind', '')).strip()
+            and str(entry.get('failure_kind', '')).strip()
+            not in self.allowed_framework_failure_kinds
+        }
+        if not disallowed_failure_kinds:
+            return
+        raise DisallowedDecisionFailureError(
+            policy_name=str(getattr(policy, 'name', getattr(policy, '__name__', 'unknown'))),
+            benchmark_item_id=self.benchmark_item_id,
+            episode_id=episode_id,
+            seed=seed,
+            disallowed_failure_kinds=disallowed_failure_kinds,
+            allowed_failure_kinds=self.allowed_framework_failure_kinds,
+        )
+
+    def _emit_progress(
+        self,
+        *,
+        event: str,
+        policy: Any,
+        episode_id: int,
+        seed: int,
+        decision_steps: int,
+        coordination_message_count: int,
+        active_agent_slots: int,
+        info: Mapping[str, Any] | None = None,
+        active_agents: Iterable[Any] | None = None,
+        runtime_seconds: float | None = None,
+        terminated: bool | None = None,
+        truncated: bool | None = None,
+    ) -> None:
+        if self.progress_callback is None:
+            return
+        decision_source_counts = dict(
+            self._framework_decision_audit(policy).get('decision_source_counts', {})
+        )
+        payload: dict[str, Any] = {
+            'event': str(event),
+            'policy_name': str(getattr(policy, 'name', getattr(policy, '__name__', 'unknown'))),
+            'episode_id': int(episode_id),
+            'seed': int(seed),
+            'decision_steps': int(decision_steps),
+            'coordination_message_count': int(coordination_message_count),
+            'active_agent_slots': int(active_agent_slots),
+            'framework_llm_decision_count': int(decision_source_counts.get('llm', 0)),
+            'framework_fallback_contract_decision_count': int(
+                decision_source_counts.get('fallback_contract', 0)
+            ),
+            'framework_no_legal_action_count': int(
+                decision_source_counts.get('no_legal_action', 0)
+            ),
+        }
+        if runtime_seconds is not None:
+            payload['runtime_seconds'] = float(runtime_seconds)
+        if terminated is not None:
+            payload['terminated'] = bool(terminated)
+        if truncated is not None:
+            payload['truncated'] = bool(truncated)
+        if active_agents is not None:
+            serialized_active_agents = [str(agent_id) for agent_id in active_agents]
+            payload['agents_to_act'] = serialized_active_agents
+            payload['active_agent_count'] = len(serialized_active_agents)
+        if info is not None:
+            plant_info = info.get('plant', {})
+            plant_payload = plant_info if isinstance(plant_info, Mapping) else {}
+            payload.update(
+                {
+                    'sim_time': float(info.get('time', 0.0)),
+                    'completed_jobs_total': int(plant_payload.get('completed_jobs_total', 0)),
+                    'backlog_jobs_total': int(plant_payload.get('backlog_jobs_total', 0)),
+                    'inbound_jobs_total': int(plant_payload.get('inbound_jobs_total', 0)),
+                    'down_machines_total': int(plant_payload.get('down_machines_total', 0)),
+                }
+            )
+            if 'plant_decision_kind' in info:
+                payload['plant_decision_kind'] = str(info.get('plant_decision_kind', ''))
+        self.progress_callback(payload)
+
+    def _emit_progress_heartbeat(
+        self,
+        *,
+        policy: Any,
+        episode_id: int,
+        seed: int,
+        decision_steps: int,
+        coordination_message_count: int,
+        active_agent_slots: int,
+        info: Mapping[str, Any] | None,
+        active_agents: Iterable[Any] | None,
+        terminated: bool,
+        truncated: bool,
+    ) -> None:
+        if decision_steps <= 0:
+            return
+        should_emit = (
+            decision_steps == 1
+            or decision_steps % self.progress_decision_interval == 0
+            or terminated
+            or truncated
+        )
+        if not should_emit:
+            return
+        self._emit_progress(
+            event='episode_heartbeat',
+            policy=policy,
+            episode_id=episode_id,
+            seed=seed,
+            decision_steps=decision_steps,
+            coordination_message_count=coordination_message_count,
+            active_agent_slots=active_agent_slots,
+            info=info,
+            active_agents=active_agents,
+            terminated=terminated,
+            truncated=truncated,
+        )
+
     def evaluate(self, policy: Any, seeds: Iterable[int]) -> HolonicEvaluationResults:
         seed_list = [int(seed) for seed in seeds]
         policy_name = getattr(policy, 'name', getattr(policy, '__name__', 'unknown'))
@@ -1242,6 +1557,10 @@ def evaluate_holonic_policy(
     seeds: Optional[Iterable[int]] = None,
     benchmark_item_id: str = 'unspecified',
     env_cls: type[HolonicPlantEnv] = HolonicPlantEnv,
+    progress_callback: ProgressCallback | None = None,
+    progress_decision_interval: int = 5,
+    require_zero_fallback: bool = False,
+    allowed_framework_failure_kinds: Optional[Iterable[str]] = None,
 ) -> HolonicEvaluationResults:
     """Convenience wrapper for plant-level holonic evaluation."""
     evaluator = HolonicEvaluator(
@@ -1249,6 +1568,10 @@ def evaluate_holonic_policy(
         config=config,
         benchmark_item_id=benchmark_item_id,
         env_cls=env_cls,
+        progress_callback=progress_callback,
+        progress_decision_interval=progress_decision_interval,
+        require_zero_fallback=require_zero_fallback,
+        allowed_framework_failure_kinds=allowed_framework_failure_kinds,
     )
     seed_list = list(seeds) if seeds is not None else [0]
     return evaluator.evaluate(policy=policy, seeds=seed_list)

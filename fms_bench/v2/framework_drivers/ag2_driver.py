@@ -18,7 +18,10 @@ from .deterministic_kernel import (
     _visible_cell_summaries,
     _visible_machine_summaries,
 )
-from .llm_prompting import build_openai_compat_benchmark_messages
+from .llm_prompting import (
+    build_openai_compat_benchmark_generation_kwargs,
+    build_openai_compat_benchmark_messages,
+)
 
 
 AG2_LLM_BACKEND = "openai_compat"
@@ -565,8 +568,10 @@ class AG2LLMTreeDriver(AG2TreeDriver):
                     agent_id=agent_id,
                     agent_view=agent_view,
                 ),
-                "temperature": 0.0,
-                "max_tokens": 32,
+                **build_openai_compat_benchmark_generation_kwargs(
+                    model_name=self.model_name,
+                    temperature=0.0,
+                ),
             },
             ensure_ascii=True,
             separators=(",", ":"),

@@ -3,14 +3,14 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fms-bench"
+name = "desbench"
 version = "0.1.0"
-description = "Holonic industrial scheduling benchmark over a shared discrete-event simulation world."
+description = "DESBench: multi-agent coordination benchmark over a shared discrete-event scheduling world."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [
-  { name = "FMS-Bench Contributors" }
+  { name = "DESBench Contributors" }
 ]
 dependencies = [
   "numpy>=1.24,<3.0",

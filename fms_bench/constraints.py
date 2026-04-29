@@ -1,4 +1,4 @@
-"""Energy and carbon accounting for FMS-Bench."""
+"""Energy and carbon accounting for DESBench."""
 
 from __future__ import annotations
 

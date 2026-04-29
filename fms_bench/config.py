@@ -1,4 +1,4 @@
-"""Configuration defaults for FMS-Bench."""
+"""Configuration defaults for DESBench."""
 
 from __future__ import annotations
 

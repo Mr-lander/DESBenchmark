@@ -1,4 +1,4 @@
-"""Baseline heuristics for FMS-Bench."""
+"""Baseline heuristics for DESBench."""
 
 from __future__ import annotations
 

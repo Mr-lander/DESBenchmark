@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Sequence
+from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence
 import csv
 import json
 
@@ -29,6 +30,9 @@ DEFAULT_CASE_BUDGET_PROVENANCE_CLASS = 'benchmark_case_design'
 DEFAULT_CASE_BUDGET_SCOPE = 'wip,energy,carbon'
 DEFAULT_CASE_BUDGET_SOURCE_REF = 'experiment_runner_tree_runtime_v2_case_cell_budgets_r20260327'
 CASE_BUDGET_ARTIFACT_FILENAME = 'case_budget_snapshot.json'
+CASE_PROGRESS_SNAPSHOT_SUFFIX = '_progress.json'
+CASE_PROGRESS_LOG_SUFFIX = '_progress.jsonl'
+DEFAULT_PROGRESS_DECISION_INTERVAL = 5
 CASE_BUDGET_METADATA_FIELDS = (
     'case_budget_provenance_class',
     'case_budget_scope',
@@ -107,6 +111,17 @@ class IntercellCongestionProfileSpec:
     transport_time_multiplier: float = 1.0
 
 
+@dataclass(frozen=True)
+class IntercellA5C12HarderProfileSpec:
+    profile_id: str
+    max_in_flight_jobs: int
+    backlog_top_k: int
+    processing_scale_overrides: dict[int, float]
+    inbound_buffer_cap_overrides: dict[int, int]
+    transport_time_multiplier: float = 1.0
+    failure_profile_id: str = 'failure_exponential_nominal_v1'
+
+
 A3C9_DYNAMICS_NOMINAL_HORIZON_HOURS = 500.0
 A3C9_DYNAMICS_BUDGET_RATIOS: dict[str, float] = {
     'short': 0.75,
@@ -127,6 +142,61 @@ class ExperimentCaseRunResult:
     summary_csv: Path
     artifact_manifest: Path
     rows: List[dict[str, Any]]
+
+
+class _CaseProgressRecorder:
+    """Persist case/policy heartbeat artifacts before the final summary is available."""
+
+    def __init__(
+        self,
+        *,
+        case: HolonicExperimentCase,
+        policy_name: str,
+        snapshot_path: Path,
+        log_path: Path,
+    ) -> None:
+        self.case = case
+        self.policy_name = str(policy_name)
+        self.snapshot_path = Path(snapshot_path)
+        self.log_path = Path(log_path)
+
+    def __call__(self, payload: dict[str, Any]) -> None:
+        event = {
+            'timestamp': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'case_id': self.case.case_id,
+            'benchmark_item_id': self.case.benchmark_item_id,
+            'policy_name': self.policy_name,
+            **dict(payload),
+        }
+        self.snapshot_path.write_text(
+            json.dumps(event, indent=2, ensure_ascii=False),
+            encoding='utf-8',
+        )
+        with self.log_path.open('a', encoding='utf-8') as f:
+            f.write(json.dumps(event, ensure_ascii=False) + '\n')
+        print(self._format_console_line(event), flush=True)
+
+    @staticmethod
+    def _format_console_line(event: dict[str, Any]) -> str:
+        fields = [
+            f"event={event.get('event', '')}",
+            f"case={event.get('case_id', '')}",
+            f"policy={event.get('policy_name', '')}",
+            f"episode={event.get('episode_id', '')}",
+            f"seed={event.get('seed', '')}",
+            f"steps={event.get('decision_steps', '')}",
+            f"llm={event.get('framework_llm_decision_count', '')}",
+            f"fallback={event.get('framework_fallback_contract_decision_count', '')}",
+        ]
+        if 'sim_time' in event:
+            fields.append(f"sim_time={event.get('sim_time', '')}")
+        if 'completed_jobs_total' in event:
+            fields.append(f"completed={event.get('completed_jobs_total', '')}")
+        if 'active_agent_count' in event:
+            fields.append(f"active={event.get('active_agent_count', '')}")
+        if 'runtime_seconds' in event:
+            fields.append(f"runtime_s={event.get('runtime_seconds', '')}")
+        return 'PROGRESS ' + ' '.join(fields)
 
 
 def make_level_config(
@@ -515,6 +585,31 @@ def _build_tree_shared_backlog_cells(repo_root: Path, composition: str, regime_i
             PlantCellConfig(cell_id=8, label='area2-tail-tight', processing_time_scale=1.16, energy_cap_kwh=540.0, carbon_cap_kg=324.0, **common),
         ]
 
+    if composition == 'brandimarte_ordertrap_twelve_cell':
+        common = {
+            'instance_path': root / 'Brandimarte1993' / 'mk01.txt',
+            'instance_kind': 'brandimarte',
+            'family_key': 'brandimarte',
+            'wip_cap': 2,
+        }
+        # Intent: A5C12 should feel structurally asymmetric before any profile-specific
+        # knobs are applied, so the baseline cell envelope already distinguishes strong,
+        # ordinary, and weak clusters.
+        return [
+            PlantCellConfig(cell_id=0, label='area0-front-fast', processing_time_scale=0.82, energy_cap_kwh=980.0, carbon_cap_kg=588.0, **common),
+            PlantCellConfig(cell_id=1, label='area0-mid-balanced', processing_time_scale=0.90, energy_cap_kwh=920.0, carbon_cap_kg=552.0, **common),
+            PlantCellConfig(cell_id=2, label='area0-mid-wide', processing_time_scale=0.98, energy_cap_kwh=860.0, carbon_cap_kg=516.0, **common),
+            PlantCellConfig(cell_id=3, label='area0-tail-tight', processing_time_scale=1.08, energy_cap_kwh=780.0, carbon_cap_kg=468.0, **common),
+            PlantCellConfig(cell_id=4, label='area1-front-fast', processing_time_scale=0.90, energy_cap_kwh=900.0, carbon_cap_kg=540.0, **common),
+            PlantCellConfig(cell_id=5, label='area1-mid-balanced', processing_time_scale=1.02, energy_cap_kwh=820.0, carbon_cap_kg=492.0, **common),
+            PlantCellConfig(cell_id=6, label='area1-tail-tight', processing_time_scale=1.12, energy_cap_kwh=700.0, carbon_cap_kg=420.0, **common),
+            PlantCellConfig(cell_id=7, label='area2-front-ordinary', processing_time_scale=1.00, energy_cap_kwh=760.0, carbon_cap_kg=456.0, **common),
+            PlantCellConfig(cell_id=8, label='area2-tail-ordinary', processing_time_scale=1.16, energy_cap_kwh=620.0, carbon_cap_kg=372.0, **common),
+            PlantCellConfig(cell_id=9, label='area3-front-ordinary', processing_time_scale=1.04, energy_cap_kwh=740.0, carbon_cap_kg=444.0, **common),
+            PlantCellConfig(cell_id=10, label='area3-tail-ordinary', processing_time_scale=1.20, energy_cap_kwh=600.0, carbon_cap_kg=360.0, **common),
+            PlantCellConfig(cell_id=11, label='area4-single-weak', processing_time_scale=1.34, energy_cap_kwh=500.0, carbon_cap_kg=300.0, **common),
+        ]
+
     raise ValueError(f'Unknown tree shared-backlog composition: {composition}')
 
 
@@ -872,6 +967,22 @@ _A3C9_CANONICAL_ROUTE_GRAMMAR = (
     (0, 2, 3, 5, 6, 8),
 )
 
+# Intent: this A5C12 route grammar raises long-horizon routing consequence without
+# making one weak area the only viable continuation path at every late stage.
+_A5C12_HARDER_ROUTE_GRAMMAR = (
+    (0, 1, 4, 5, 7, 9, 11),
+    (1, 2, 5, 6, 8, 10),
+    (0, 2, 3, 4, 7, 8, 11),
+    (1, 3, 5, 6, 9, 10, 11),
+)
+_A5C12_ASYMMETRIC_AREA_PARTITIONS = (
+    (0, 1, 2, 3),
+    (4, 5, 6),
+    (7, 8),
+    (9, 10),
+    (11,),
+)
+
 
 def build_tree_runtime_v2_intercell_a3c9_probe_suite(
     repo_root: Path,
@@ -899,6 +1010,226 @@ def build_tree_runtime_v2_intercell_a3c9_probe_suite(
             backlog_top_k=3,
             route_grammar_contract='a3c9_canonical_non_degenerate_v1',
         )
+    ]
+
+
+def _intercell_a5c12_harder_candidate_specs() -> tuple[IntercellA5C12HarderProfileSpec, ...]:
+    return (
+        IntercellA5C12HarderProfileSpec(
+            # Intent: keep the anchor profile clearly schedulable while still making
+            # the late weak cells expensive enough that early branch choices matter.
+            profile_id='branch_pressure_k4_tm115_bk4',
+            max_in_flight_jobs=4,
+            backlog_top_k=4,
+            processing_scale_overrides={3: 1.10, 6: 1.16, 8: 1.20, 10: 1.22, 11: 1.28},
+            inbound_buffer_cap_overrides={},
+            transport_time_multiplier=1.15,
+            failure_profile_id='failure_exponential_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: first softer release-pressure escalation. Increase visible
+            # backlog choice and transport cost without introducing hard chokepoints.
+            profile_id='branch_pressure_k5_tm125_bk5',
+            max_in_flight_jobs=5,
+            backlog_top_k=5,
+            processing_scale_overrides={3: 1.14, 6: 1.20, 8: 1.24, 10: 1.28, 11: 1.34},
+            inbound_buffer_cap_overrides={},
+            transport_time_multiplier=1.25,
+            failure_profile_id='failure_exponential_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: boundary case for release pressure. If this holds, A5C12 has
+            # room to scale; if it collapses, we reject it rather than ship a cliff.
+            profile_id='branch_pressure_k6_tm125_bk5',
+            max_in_flight_jobs=6,
+            backlog_top_k=5,
+            processing_scale_overrides={3: 1.14, 6: 1.20, 8: 1.24, 10: 1.28, 11: 1.34},
+            inbound_buffer_cap_overrides={},
+            transport_time_multiplier=1.25,
+            failure_profile_id='failure_exponential_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: pull jobs into the stronger early clusters so controllers must
+            # reason about later congestion instead of greedily following fast starts.
+            profile_id='cluster_pull_k4_tm120_bk4',
+            max_in_flight_jobs=4,
+            backlog_top_k=4,
+            processing_scale_overrides={0: 0.78, 1: 0.84, 4: 0.86, 7: 1.08, 9: 1.12, 11: 1.32},
+            inbound_buffer_cap_overrides={},
+            transport_time_multiplier=1.20,
+            failure_profile_id='failure_weibull_aging_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: medium harder candidate. Same strong-cluster lure, but with
+            # enough release pressure that over-committing early should become costly.
+            profile_id='cluster_pull_k5_tm130_bk5',
+            max_in_flight_jobs=5,
+            backlog_top_k=5,
+            processing_scale_overrides={0: 0.76, 1: 0.82, 4: 0.84, 7: 1.12, 9: 1.16, 11: 1.38},
+            inbound_buffer_cap_overrides={},
+            transport_time_multiplier=1.30,
+            failure_profile_id='failure_weibull_aging_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: upper boundary for the cluster-pull family. We expect this to be
+            # near the edge of stable scheduling, not an automatic final-suite pick.
+            profile_id='cluster_pull_k6_tm130_bk5',
+            max_in_flight_jobs=6,
+            backlog_top_k=5,
+            processing_scale_overrides={0: 0.76, 1: 0.82, 4: 0.84, 7: 1.12, 9: 1.16, 11: 1.38},
+            inbound_buffer_cap_overrides={},
+            transport_time_multiplier=1.30,
+            failure_profile_id='failure_weibull_aging_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: emphasize long-horizon consequence without using zero-buffer
+            # collapse. The late path is slower, but still physically runnable.
+            profile_id='late_commit_soft_k4_tm125_bk4',
+            max_in_flight_jobs=4,
+            backlog_top_k=4,
+            processing_scale_overrides={2: 1.14, 6: 1.18, 8: 1.24, 10: 1.30, 11: 1.40},
+            inbound_buffer_cap_overrides={},
+            transport_time_multiplier=1.25,
+            failure_profile_id='failure_load_dependent_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: target upper stable harder lane. This should raise commitment
+            # regret through dynamic disturbance, extra transport, and broader backlog.
+            profile_id='late_commit_soft_k5_tm130_bk5',
+            max_in_flight_jobs=5,
+            backlog_top_k=5,
+            processing_scale_overrides={2: 1.18, 6: 1.22, 8: 1.28, 10: 1.34, 11: 1.46},
+            inbound_buffer_cap_overrides={},
+            transport_time_multiplier=1.30,
+            failure_profile_id='failure_load_dependent_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: introduce one narrow late-stage gate only at the weakest cell so
+            # area-level reroute matters, but the suite still avoids multi-cell choke traps.
+            profile_id='late_commit_gate_k4_tm125_bk4',
+            max_in_flight_jobs=4,
+            backlog_top_k=4,
+            processing_scale_overrides={2: 1.16, 6: 1.20, 8: 1.26, 10: 1.32, 11: 1.42},
+            inbound_buffer_cap_overrides={11: 0},
+            transport_time_multiplier=1.25,
+            failure_profile_id='failure_load_dependent_nominal_v1',
+        ),
+        IntercellA5C12HarderProfileSpec(
+            # Intent: upper boundary for late commitment. This is intentionally close
+            # to the cliff so prescreening can decide whether it remains honest.
+            profile_id='late_commit_gate_k5_tm130_bk5',
+            max_in_flight_jobs=5,
+            backlog_top_k=5,
+            processing_scale_overrides={2: 1.18, 6: 1.22, 8: 1.28, 10: 1.34, 11: 1.46},
+            inbound_buffer_cap_overrides={11: 0},
+            transport_time_multiplier=1.30,
+            failure_profile_id='failure_load_dependent_nominal_v1',
+        ),
+    )
+
+
+def build_tree_runtime_v2_intercell_a5c12_harder_candidates_suite(
+    repo_root: Path,
+    *,
+    seed_split: str = 'test',
+    numeric_profile_id: str | None = None,
+    due_date_profile_id: str | None = None,
+    authority_modes: Sequence[str] | None = None,
+) -> List[HolonicExperimentCase]:
+    repo_root = Path(repo_root)
+    mode_ids = _resolve_intercell_authority_modes(
+        authority_modes,
+        default_modes=MAINLINE_CATEGORY_B_AUTHORITY_MODES,
+    )
+    shared_kwargs = {
+        'repo_root': repo_root,
+        'suite_tier': 'tree_runtime_v2_intercell_a5c12_harder_candidates',
+        'seed_split': seed_split,
+        'composition': 'brandimarte_ordertrap_twelve_cell',
+        'source_composition': 'brandimarte_ordertrap_twelve_cell',
+        'regime_id': 'R0',
+        'inbound_buffer_cap': 1,
+        'area_count': 5,
+        'area_partitions': _A5C12_ASYMMETRIC_AREA_PARTITIONS,
+        'route_grammar': _A5C12_HARDER_ROUTE_GRAMMAR,
+        'route_grammar_contract': 'a5c12_asymmetric_long_horizon_v1',
+        'numeric_profile_id': numeric_profile_id,
+        'due_date_profile_id': due_date_profile_id,
+        'arrival_profile_id': 'arrival_nhpp_random_batch_overlap_a3c9_v2',
+        'setup_profile_id': 'setup_family_change_nominal_v1',
+    }
+    return [
+        _build_intercell_case(
+            **shared_kwargs,
+            profile_id=spec.profile_id,
+            max_in_flight_jobs=spec.max_in_flight_jobs,
+            inbound_buffer_cap_overrides=spec.inbound_buffer_cap_overrides,
+            processing_scale_overrides=spec.processing_scale_overrides,
+            transport_time_multiplier=spec.transport_time_multiplier,
+            backlog_top_k=spec.backlog_top_k,
+            failure_profile_id=spec.failure_profile_id,
+            authority_mode=authority_mode,
+            include_authority_tag=True,
+        )
+        for spec in _intercell_a5c12_harder_candidate_specs()
+        for authority_mode in mode_ids
+    ]
+
+
+def build_tree_runtime_v2_intercell_a5c12_harder_suite(
+    repo_root: Path,
+    *,
+    seed_split: str = 'test',
+    numeric_profile_id: str | None = None,
+    due_date_profile_id: str | None = None,
+    authority_modes: Sequence[str] | None = None,
+) -> List[HolonicExperimentCase]:
+    selected_profile_ids = {
+        # Prescreen result: the k=4 family preserved the intended harder semantics.
+        # Raising k to 5/6 often reduced tardiness/makespan instead of increasing
+        # decision difficulty, so those variants stay in the candidate pool only.
+        'branch_pressure_k4_tm115_bk4',
+        'cluster_pull_k4_tm120_bk4',
+        'late_commit_soft_k4_tm125_bk4',
+    }
+    repo_root = Path(repo_root)
+    mode_ids = _resolve_intercell_authority_modes(
+        authority_modes,
+        default_modes=MAINLINE_CATEGORY_B_AUTHORITY_MODES,
+    )
+    shared_kwargs = {
+        'repo_root': repo_root,
+        'suite_tier': 'tree_runtime_v2_intercell_a5c12_harder',
+        'seed_split': seed_split,
+        'composition': 'brandimarte_ordertrap_twelve_cell',
+        'source_composition': 'brandimarte_ordertrap_twelve_cell',
+        'regime_id': 'R0',
+        'inbound_buffer_cap': 1,
+        'area_count': 5,
+        'area_partitions': _A5C12_ASYMMETRIC_AREA_PARTITIONS,
+        'route_grammar': _A5C12_HARDER_ROUTE_GRAMMAR,
+        'route_grammar_contract': 'a5c12_asymmetric_long_horizon_v1',
+        'numeric_profile_id': numeric_profile_id,
+        'due_date_profile_id': due_date_profile_id,
+        'arrival_profile_id': 'arrival_nhpp_random_batch_overlap_a3c9_v2',
+        'setup_profile_id': 'setup_family_change_nominal_v1',
+    }
+    return [
+        _build_intercell_case(
+            **shared_kwargs,
+            profile_id=spec.profile_id,
+            max_in_flight_jobs=spec.max_in_flight_jobs,
+            inbound_buffer_cap_overrides=spec.inbound_buffer_cap_overrides,
+            processing_scale_overrides=spec.processing_scale_overrides,
+            transport_time_multiplier=spec.transport_time_multiplier,
+            backlog_top_k=spec.backlog_top_k,
+            failure_profile_id=spec.failure_profile_id,
+            authority_mode=authority_mode,
+            include_authority_tag=True,
+        )
+        for spec in _intercell_a5c12_harder_candidate_specs()
+        if spec.profile_id in selected_profile_ids
+        for authority_mode in mode_ids
     ]
 
 
@@ -1167,6 +1498,8 @@ def _official_surface_id_for_suite_tier(suite_tier: str) -> str:
         return 'intercell_a3c9_wide'
     if suite_tier == 'tree_runtime_v2_intercell_a3c9_nightmare':
         return 'intercell_a3c9_nightmare'
+    if suite_tier == 'tree_runtime_v2_intercell_a5c12_harder':
+        return 'intercell_a5c12_harder'
     if suite_tier.startswith('tree_runtime_v2_'):
         return suite_tier.removeprefix('tree_runtime_v2_')
     return suite_tier
@@ -1183,6 +1516,8 @@ def _official_surface_role_for_suite_tier(suite_tier: str) -> str:
         return 'appendix_budget_extension'
     if suite_tier == 'tree_runtime_v2_intercell_a3c9_probe':
         return 'internal_probe'
+    if suite_tier == 'tree_runtime_v2_intercell_a5c12_harder':
+        return 'experimental_harder_surface'
     return 'internal_extension'
 
 
@@ -1390,6 +1725,7 @@ def _build_intercell_case(
     route_grammar: tuple[tuple[int, ...], ...] | None = None,
     backlog_top_k: int = 1,
     route_grammar_contract: str | None = None,
+    area_partitions: Sequence[Sequence[int]] | None = None,
     authority_mode: str = DEFAULT_INTERCELL_AUTHORITY_MODE,
     include_authority_tag: bool = False,
 ) -> HolonicExperimentCase:
@@ -1407,7 +1743,11 @@ def _build_intercell_case(
         )
         for cell in cell_configs
     ]
-    topology = build_tree_topology(cell_configs, area_count=area_count)
+    topology = build_tree_topology(
+        cell_configs,
+        area_count=area_count,
+        area_partitions=area_partitions,
+    )
 
     case_id = f'{suite_tier}__{composition}__{topology.topology_id}__{regime_id}'
     benchmark_item_id = (
@@ -1446,6 +1786,8 @@ def _build_intercell_case(
         'tree_runtime_v2_intercell_a3c9_wide',
         'tree_runtime_v2_intercell_a3c9_dynamics',
         'tree_runtime_v2_intercell_a3c9_nightmare',
+        'tree_runtime_v2_intercell_a5c12_harder_candidates',
+        'tree_runtime_v2_intercell_a5c12_harder',
         'tree_runtime_v2_intercell_wide',
         'tree_runtime_v2_intercell_dynamics_extension',
         'tree_runtime_v2_intercell_harder_congestion_candidates',
@@ -1706,6 +2048,8 @@ def run_experiment_case(
     case: HolonicExperimentCase,
     policies: Sequence[Any],
     output_dir: Path,
+    require_zero_fallback: bool = False,
+    allowed_framework_failure_kinds: Optional[Iterable[str]] = None,
 ) -> ExperimentCaseRunResult:
     output_dir = Path(output_dir)
     case_dir = output_dir / case.case_id
@@ -1719,44 +2063,131 @@ def run_experiment_case(
     rows: List[dict[str, Any]] = []
     artifact_rows: List[dict[str, Any]] = []
     for policy in policies:
-        results = evaluate_holonic_policy(
-            policy=policy,
-            cell_configs=case.cell_configs,
-            config=_case_config(case),
-            seeds=case.seeds,
-            benchmark_item_id=case.benchmark_item_id,
-            env_cls=case.env_cls,
-        )
         base = case_dir / policy.name
-        results_json = base.with_suffix('.json')
-        episode_csv = base.with_suffix('.csv')
-        activation_trace_json = base.with_name(f'{policy.name}_activation_trace.json')
-        settlement_trace_json = base.with_name(f'{policy.name}_settlement_trace.json')
-        protocol_trace_json = base.with_name(f'{policy.name}_protocol_trace.json')
-        world_event_trace_json = base.with_name(f'{policy.name}_world_event_trace.json')
-        results.save_json(results_json)
-        results.save_episode_csv(episode_csv)
-        _write_trace_artifact(
-            path=activation_trace_json,
-            results=results,
-            trace_key='activation_trace',
+        progress_snapshot_json = base.with_name(
+            f'{policy.name}{CASE_PROGRESS_SNAPSHOT_SUFFIX}'
         )
-        _write_trace_artifact(
-            path=settlement_trace_json,
-            results=results,
-            trace_key='settlement_trace',
+        progress_log_jsonl = base.with_name(
+            f'{policy.name}{CASE_PROGRESS_LOG_SUFFIX}'
         )
-        _write_trace_artifact(
-            path=protocol_trace_json,
-            results=results,
-            trace_key='protocol_trace',
+        progress_recorder = _CaseProgressRecorder(
+            case=case,
+            policy_name=policy.name,
+            snapshot_path=progress_snapshot_json,
+            log_path=progress_log_jsonl,
         )
-        _write_trace_artifact(
-            path=world_event_trace_json,
-            results=results,
-            trace_key='world_event_trace',
+        progress_recorder(
+            {
+                'event': 'policy_started',
+                'episode_id': -1,
+                'seed': '',
+                'decision_steps': 0,
+                'coordination_message_count': 0,
+                'active_agent_slots': 0,
+                'framework_llm_decision_count': 0,
+                'framework_fallback_contract_decision_count': 0,
+                'framework_no_legal_action_count': 0,
+                'planned_seed_count': len(case.seeds),
+            }
         )
-        summary = results.summary()
+        try:
+            evaluate_kwargs: dict[str, Any] = {
+                'policy': policy,
+                'cell_configs': case.cell_configs,
+                'config': _case_config(case),
+                'seeds': case.seeds,
+                'benchmark_item_id': case.benchmark_item_id,
+                'env_cls': case.env_cls,
+                'progress_callback': progress_recorder,
+                'progress_decision_interval': DEFAULT_PROGRESS_DECISION_INTERVAL,
+                'require_zero_fallback': require_zero_fallback,
+            }
+            if allowed_framework_failure_kinds is not None:
+                evaluate_kwargs['allowed_framework_failure_kinds'] = allowed_framework_failure_kinds
+            results = evaluate_holonic_policy(
+                **evaluate_kwargs,
+            )
+            results_json = base.with_suffix('.json')
+            episode_csv = base.with_suffix('.csv')
+            activation_trace_json = base.with_name(f'{policy.name}_activation_trace.json')
+            settlement_trace_json = base.with_name(f'{policy.name}_settlement_trace.json')
+            protocol_trace_json = base.with_name(f'{policy.name}_protocol_trace.json')
+            world_event_trace_json = base.with_name(f'{policy.name}_world_event_trace.json')
+            results.save_json(results_json)
+            results.save_episode_csv(episode_csv)
+            _write_trace_artifact(
+                path=activation_trace_json,
+                results=results,
+                trace_key='activation_trace',
+            )
+            _write_trace_artifact(
+                path=settlement_trace_json,
+                results=results,
+                trace_key='settlement_trace',
+            )
+            _write_trace_artifact(
+                path=protocol_trace_json,
+                results=results,
+                trace_key='protocol_trace',
+            )
+            _write_trace_artifact(
+                path=world_event_trace_json,
+                results=results,
+                trace_key='world_event_trace',
+            )
+            summary = results.summary()
+        except Exception as exc:
+            decision_audit = getattr(policy, 'decision_audit_payload', None)
+            if isinstance(decision_audit, Mapping):
+                decision_source_counts = dict(
+                    decision_audit.get('decision_source_counts', {})
+                )
+                decision_source_trace = list(
+                    decision_audit.get('decision_source_trace', [])
+                )
+                decision_failure_trace = list(
+                    decision_audit.get('decision_failure_trace', [])
+                )
+                decision_audit_contract = str(
+                    decision_audit.get('framework_decision_audit_contract', '')
+                )
+            else:
+                decision_source_counts = {}
+                decision_source_trace = []
+                decision_failure_trace = []
+                decision_audit_contract = ''
+            progress_recorder(
+                {
+                    'event': 'policy_failed',
+                    'episode_id': -1,
+                    'seed': '',
+                    'decision_steps': 0,
+                    'coordination_message_count': 0,
+                    'active_agent_slots': 0,
+                    'framework_decision_audit_contract': decision_audit_contract,
+                    'framework_decision_source_trace': decision_source_trace,
+                    'framework_decision_failure_trace': decision_failure_trace,
+                    'framework_decision_source_counts': decision_source_counts,
+                    'framework_llm_decision_count': int(
+                        decision_source_counts.get('llm', 0)
+                    ),
+                    'framework_fallback_contract_decision_count': int(
+                        getattr(
+                            exc,
+                            'fallback_count',
+                            decision_source_counts.get('fallback_contract', 0),
+                        )
+                    ),
+                    'framework_no_legal_action_count': int(
+                        decision_source_counts.get('no_legal_action', 0)
+                    ),
+                    'error_type': type(exc).__name__,
+                    'error': str(exc),
+                    'failed_episode_id': int(getattr(exc, 'episode_id', -1)),
+                    'failed_seed': getattr(exc, 'seed', ''),
+                }
+            )
+            raise
         summary['case_id'] = case.case_id
         summary['level'] = case.level
         summary['suite_tier'] = case.suite_tier
@@ -1766,6 +2197,33 @@ def run_experiment_case(
         summary.update(_semantic_case_metadata(case))
         summary.update(_case_budget_metadata(case))
         rows.append(summary)
+        progress_recorder(
+            {
+                'event': 'policy_completed',
+                'episode_id': len(results.episodes) - 1,
+                'seed': results.episodes[-1].seed if results.episodes else '',
+                'decision_steps': int(summary.get('decision_steps_mean', 0.0)),
+                'coordination_message_count': int(
+                    summary.get('coordination_message_count_mean', 0.0)
+                ),
+                'active_agent_slots': int(summary.get('active_agent_slots_mean', 0.0)),
+                'framework_llm_decision_count': int(
+                    summary.get('framework_llm_decision_count_mean', 0.0)
+                ),
+                'framework_fallback_contract_decision_count': int(
+                    summary.get('framework_fallback_contract_decision_count_mean', 0.0)
+                ),
+                'framework_no_legal_action_count': int(
+                    summary.get('framework_no_legal_action_count_mean', 0.0)
+                ),
+                'runtime_seconds': float(summary.get('runtime_mean_seconds', 0.0)),
+                'sim_time': float(summary.get('makespan_mean', 0.0)),
+                'completed_jobs_total': int(summary.get('completed_jobs_mean', 0.0)),
+                'active_agent_count': 0,
+                'terminated': float(summary.get('success_rate', 0.0)) > 0.0,
+                'truncated': float(summary.get('truncation_rate', 0.0)) > 0.0,
+            }
+        )
         artifact_rows.append(
             {
                 'case_id': case.case_id,
@@ -1794,6 +2252,8 @@ def run_experiment_case(
                 'protocol_trace_json': str(protocol_trace_json),
                 'world_event_trace_json': str(world_event_trace_json),
                 'case_budget_snapshot_json': str(case_budget_snapshot_json),
+                'progress_snapshot_json': str(progress_snapshot_json),
+                'progress_log_jsonl': str(progress_log_jsonl),
             }
         )
 
@@ -1881,13 +2341,23 @@ def run_experiment_suite(
     cases: Iterable[HolonicExperimentCase],
     policies: Sequence[Any],
     output_dir: Path,
+    require_zero_fallback: bool = False,
+    allowed_framework_failure_kinds: Optional[Iterable[str]] = None,
 ) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     all_rows: List[dict[str, Any]] = []
     summary_path = output_dir / 'suite_summary.csv'
     for case in cases:
-        result = run_experiment_case(case=case, policies=policies, output_dir=output_dir)
+        case_run_kwargs: dict[str, Any] = {
+            'case': case,
+            'policies': policies,
+            'output_dir': output_dir,
+            'require_zero_fallback': require_zero_fallback,
+        }
+        if allowed_framework_failure_kinds is not None:
+            case_run_kwargs['allowed_framework_failure_kinds'] = allowed_framework_failure_kinds
+        result = run_experiment_case(**case_run_kwargs)
         all_rows.extend(result.rows)
         _write_csv_rows(summary_path, all_rows)
     if not all_rows:

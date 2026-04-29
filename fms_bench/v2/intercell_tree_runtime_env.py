@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from fms_bench.config import BenchmarkConfig
 from fms_bench.holonic_types import PlantCellConfig
@@ -66,3 +66,26 @@ class IntercellTreeRuntimeEnv(TreeRuntimeEnv):
         self._pending_area_id: int | None = None
         self._pending_cell_id: int | None = None
         self._pending_runtime_contract_id: str | None = None
+
+    def _advance_world_until_decision(
+        self,
+        *,
+        stop_on_dispatch: bool,
+    ) -> dict[str, Any]:
+        transition = self._env._advance_until_decision(
+            auto_dispatch=False,
+            stop_on_dispatch=stop_on_dispatch,
+        )
+        if (
+            stop_on_dispatch
+            and self._transition_has_no_progress(transition)
+            and not self._build_current_epoch().agents_to_act
+            and self._env.simulator.get_dispatch_options()
+            and not self._build_local_dispatch_epoch().agents_to_act
+        ):
+            return self._env._advance_until_decision(
+                auto_dispatch=False,
+                stop_on_dispatch=True,
+                dispatch_scope="runtime",
+            )
+        return transition

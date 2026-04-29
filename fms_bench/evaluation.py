@@ -1,4 +1,4 @@
-"""Evaluation protocol for FMS-Bench."""
+"""Evaluation protocol for DESBench."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ class EvaluationResults:
 
 
 class Evaluator:
-    """Run evaluation episodes for FMS-Bench."""
+    """Run evaluation episodes for DESBench."""
 
     def __init__(
         self,

@@ -11,7 +11,10 @@ from urllib import request as urllib_request
 
 from .base import FrameworkBackedTreeDriver
 from .deterministic_kernel import DeterministicCoordinationKernel
-from .llm_prompting import build_openai_compat_benchmark_messages
+from .llm_prompting import (
+    build_openai_compat_benchmark_generation_kwargs,
+    build_openai_compat_benchmark_messages,
+)
 
 GOOGLE_ADK_LLM_BACKEND = "openai_compat"
 
@@ -533,8 +536,10 @@ class GoogleADKLLMTreeDriver(GoogleADKTreeDriver):
         payload = {
             "model": self.llm_model,
             "messages": messages,
-            "temperature": 0.0,
-            "max_tokens": 32,
+            **build_openai_compat_benchmark_generation_kwargs(
+                model_name=self.llm_model,
+                temperature=0.0,
+            ),
         }
         headers = {
             "Content-Type": "application/json",

@@ -21,6 +21,7 @@ from .types import ActivationRecord
 class TreeRuntimeEnv:
     """Interpreter-driven v2 runtime boundary over one shared DES world."""
 
+    _MAX_PROTOCOL_LIVELOCK_STEPS = 64
     _SUPPORTED_EXECUTION_MODES = (
         "single_agent",
         "same_timestamp_multi_cell_local_regulation",
@@ -91,6 +92,7 @@ class TreeRuntimeEnv:
         self._pending_area_id: int | None = None
         self._pending_cell_id: int | None = None
         self._pending_runtime_contract_id: str | None = None
+        self._protocol_livelock_streak = 0
 
     @property
     def simulator(self) -> Any:
@@ -113,6 +115,7 @@ class TreeRuntimeEnv:
         observation, info = self._env.reset(seed=seed, options=options)
         self.runtime_ledger = RuntimeLedger()
         self._clear_pending_protocol_state()
+        self._reset_protocol_livelock_guard()
         self.current_decision_epoch = self._build_current_epoch()
         augmented_info = self._augment_info(
             info,
@@ -393,10 +396,15 @@ class TreeRuntimeEnv:
                 f"action_dict keys must match current decision epoch agents: {current_agents}"
             )
 
+        world_state_before = self._env.render()
         if len(current_agents) != 1:
             execution_mode = self.current_execution_mode(current_agents)
             if execution_mode == "same_timestamp_multi_cell_local_regulation":
-                return self._step_multi_cell_local_regulation(action_dict)
+                result = self._step_multi_cell_local_regulation(action_dict)
+                return self._apply_protocol_livelock_guard(
+                    world_state_before=world_state_before,
+                    result=result,
+                )
             raise NotImplementedError(
                 "TreeRuntimeEnv does not support the current multi-agent execution mode: "
                 f"{execution_mode}"
@@ -407,12 +415,25 @@ class TreeRuntimeEnv:
         if current_agent == "plant":
             record = self.current_decision_epoch.records_by_agent[current_agent]
             if record.functional_loop == "accountability_and_escalation":
-                return self._step_plant_accountability(record, action_value)
-            return self._step_plant(action_value)
+                result = self._step_plant_accountability(record, action_value)
+            else:
+                result = self._step_plant(action_value)
+            return self._apply_protocol_livelock_guard(
+                world_state_before=world_state_before,
+                result=result,
+            )
         if current_agent.startswith("area_"):
-            return self._step_area(current_agent, action_value)
+            result = self._step_area(current_agent, action_value)
+            return self._apply_protocol_livelock_guard(
+                world_state_before=world_state_before,
+                result=result,
+            )
         if current_agent.startswith("cell_"):
-            return self._step_cell(current_agent, action_value)
+            result = self._step_cell(current_agent, action_value)
+            return self._apply_protocol_livelock_guard(
+                world_state_before=world_state_before,
+                result=result,
+            )
         raise ValueError(f"Unknown runtime agent: {current_agent}")
 
     def advance_idle_epoch(self) -> PlantStepResult:
@@ -420,10 +441,7 @@ class TreeRuntimeEnv:
             raise RuntimeError("Controller action is required at the current decision epoch")
 
         tardiness_before = self._compute_total_tardiness()
-        transition = self._env._advance_until_decision(
-            auto_dispatch=False,
-            stop_on_dispatch=True,
-        )
+        transition = self._advance_world_until_decision(stop_on_dispatch=True)
         self._env._last_transition = transition
 
         terminated = self._env._is_done()
@@ -626,6 +644,36 @@ class TreeRuntimeEnv:
         action: int,
     ) -> PlantStepResult:
         valid_area_ids = self._valid_plant_accountability_area_ids(record)
+        if not valid_area_ids:
+            self._clear_pending_protocol_state()
+            self.current_decision_epoch = self._build_current_epoch()
+            info = self._augment_info(
+                self._env.render(),
+                activation_trace=self._serialize_records(
+                    self.current_decision_epoch.records_by_agent.values()
+                ),
+                protocol_trace=[],
+                world_event_trace=[],
+                settlement_trace=self.runtime_ledger.settlement_trace(),
+                reward_components={
+                    "delta_time": 0.0,
+                    "delta_tardiness": 0.0,
+                    "energy_penalty": 0.0,
+                    "carbon_penalty": 0.0,
+                    "invalid_action_penalty": 0.0,
+                    "deadlock_penalty": 0.0,
+                    "terminal_bonus": 0.0,
+                    "total": 0.0,
+                },
+            )
+            info["accountability_reroute_exhausted"] = True
+            return PlantStepResult(
+                observation=self._env.observe("plant"),
+                reward=0.0,
+                terminated=False,
+                truncated=False,
+                info=info,
+            )
         selected_area_id, staged_plant_action = self._resolve_plant_action(
             action,
             valid_area_ids=valid_area_ids,
@@ -762,10 +810,7 @@ class TreeRuntimeEnv:
                 original_valid_release_cells = self._env._valid_release_cells
                 try:
                     self._env._valid_release_cells = lambda: []
-                    transition = self._env._advance_until_decision(
-                        auto_dispatch=False,
-                        stop_on_dispatch=True,
-                    )
+                    transition = self._advance_world_until_decision(stop_on_dispatch=True)
                     self._env._last_transition = transition
                 finally:
                     self._env._valid_release_cells = original_valid_release_cells
@@ -1080,10 +1125,7 @@ class TreeRuntimeEnv:
         truncated = bool(self._env._truncated)
         if not self.current_decision_epoch.agents_to_act and not (terminated or truncated):
             tardiness_before = self._compute_total_tardiness()
-            transition = self._env._advance_until_decision(
-                auto_dispatch=False,
-                stop_on_dispatch=True,
-            )
+            transition = self._advance_world_until_decision(stop_on_dispatch=True)
             self._env._last_transition = transition
             terminated = self._env._is_done()
             truncated = False
@@ -1159,10 +1201,7 @@ class TreeRuntimeEnv:
         decision = runtime.handle_activation(record, action=legal_actions[selected_index])
         tardiness_before = self._compute_total_tardiness()
         self._env.dispatch_job_to_machine(selected_option.job_id, selected_option.machine_id)
-        transition = self._env._advance_until_decision(
-            auto_dispatch=False,
-            stop_on_dispatch=True,
-        )
+        transition = self._advance_world_until_decision(stop_on_dispatch=True)
         self._env._last_transition = transition
 
         terminated = self._env._is_done()
@@ -1247,10 +1286,7 @@ class TreeRuntimeEnv:
             last_local_dispatches.append(selected_option)
 
         tardiness_before = self._compute_total_tardiness()
-        transition = self._env._advance_until_decision(
-            auto_dispatch=False,
-            stop_on_dispatch=True,
-        )
+        transition = self._advance_world_until_decision(stop_on_dispatch=True)
         self._env._last_transition = transition
 
         terminated = self._env._is_done()
@@ -1571,6 +1607,16 @@ class TreeRuntimeEnv:
             and not list(transition.get("events", ()))
         )
 
+    def _advance_world_until_decision(
+        self,
+        *,
+        stop_on_dispatch: bool,
+    ) -> dict[str, Any]:
+        return self._env._advance_until_decision(
+            auto_dispatch=False,
+            stop_on_dispatch=stop_on_dispatch,
+        )
+
     def _should_truncate_for_no_progress(self, transition: Mapping[str, Any]) -> bool:
         if not self._transition_has_no_progress(transition):
             return False
@@ -1795,7 +1841,7 @@ class TreeRuntimeEnv:
             for area_id in valid_areas
             if f"area_{area_id}" not in attempted_area_ids
         ]
-        return filtered or valid_areas
+        return filtered
 
     def _plant_accountability_action_mask(
         self,
@@ -1812,6 +1858,88 @@ class TreeRuntimeEnv:
         self._pending_area_id = None
         self._pending_cell_id = None
         self._pending_runtime_contract_id = None
+
+    def _reset_protocol_livelock_guard(self) -> None:
+        self._protocol_livelock_streak = 0
+
+    @staticmethod
+    def _protocol_livelock_fingerprint(info: Mapping[str, Any]) -> tuple[object, ...]:
+        plant = dict(info.get("plant", {}))
+        cell_summaries = dict(info.get("cell_summaries", {}))
+        normalized_cells = []
+        for raw_cell_id, raw_summary in sorted(
+            cell_summaries.items(),
+            key=lambda item: int(dict(item[1]).get("cell_id", item[0])),
+        ):
+            summary = dict(raw_summary)
+            normalized_cells.append(
+                (
+                    int(summary.get("cell_id", raw_cell_id)),
+                    int(summary.get("backlog_jobs", 0)),
+                    int(summary.get("released_jobs", 0)),
+                    int(summary.get("active_jobs", 0)),
+                    int(summary.get("completed_jobs", 0)),
+                    int(summary.get("ready_jobs", 0)),
+                    int(summary.get("inbound_jobs", 0)),
+                    int(summary.get("busy_machines", 0)),
+                    int(summary.get("down_machines", 0)),
+                )
+            )
+        return (
+            float(info.get("time", 0.0)),
+            int(plant.get("released_jobs_total", 0)),
+            int(plant.get("completed_jobs_total", 0)),
+            int(plant.get("backlog_jobs_total", 0)),
+            int(plant.get("future_backlog_jobs_total", 0)),
+            int(plant.get("blocked_jobs_total", 0)),
+            int(plant.get("buffer_waiting_jobs_total", 0)),
+            int(plant.get("inbound_jobs_total", 0)),
+            int(plant.get("busy_machines_total", 0)),
+            int(plant.get("setup_machines_total", 0)),
+            int(plant.get("down_machines_total", 0)),
+            int(plant.get("dormant_jobs_total", 0)),
+            tuple(normalized_cells),
+        )
+
+    def _apply_protocol_livelock_guard(
+        self,
+        *,
+        world_state_before: Mapping[str, Any],
+        result: PlantStepResult,
+    ) -> PlantStepResult:
+        if result.terminated or result.truncated:
+            self._reset_protocol_livelock_guard()
+            return result
+
+        before_fingerprint = self._protocol_livelock_fingerprint(world_state_before)
+        after_fingerprint = self._protocol_livelock_fingerprint(result.info)
+        if after_fingerprint == before_fingerprint:
+            self._protocol_livelock_streak += 1
+        else:
+            self._reset_protocol_livelock_guard()
+            return result
+
+        if self._protocol_livelock_streak < self._MAX_PROTOCOL_LIVELOCK_STEPS:
+            return result
+
+        livelock_streak = int(self._protocol_livelock_streak)
+        self._env._terminated = False
+        self._env._truncated = True
+        self.current_decision_epoch = DecisionEpoch(
+            activation_timestamp=float(self._env.simulator.time),
+            records_by_agent={},
+        )
+
+        result.terminated = False
+        result.truncated = True
+        result.info["protocol_livelock_detected"] = True
+        result.info["protocol_livelock_streak"] = livelock_streak
+        result.info["truncated_reason"] = "protocol_livelock"
+        result.info["current_decision_epoch"] = self._serialize_epoch(self.current_decision_epoch)
+        result.info["agents_to_act"] = []
+        result.info["runtime_state_kind"] = self.runtime_state_kind(result.info)
+        self._reset_protocol_livelock_guard()
+        return result
 
     def _compute_total_tardiness(self) -> float:
         total = 0.0

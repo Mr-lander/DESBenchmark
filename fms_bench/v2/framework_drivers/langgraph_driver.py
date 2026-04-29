@@ -6,6 +6,7 @@ import json
 import sys
 import time
 from typing import Any, TypedDict
+from urllib import request as urllib_request
 
 from .base import FrameworkBackedTreeDriver
 from .deterministic_kernel import (
@@ -14,7 +15,7 @@ from .deterministic_kernel import (
     _visible_machine_summaries,
 )
 from .llm_prompting import (
-    OPENAI_COMPAT_BENCHMARK_MAX_TOKENS,
+    build_openai_compat_benchmark_generation_kwargs,
     build_openai_compat_benchmark_messages,
     build_openai_compat_benchmark_user_prompt,
     parse_openai_compat_benchmark_action_text,
@@ -263,6 +264,7 @@ class LangGraphLLMTreeDriver(LangGraphTreeDriver):
         controller_name: str | None = None,
         request_retries: int = 2,
         retry_backoff_seconds: float = 0.5,
+        retry_backoff_max_seconds: float = 60.0,
     ) -> None:
         self.llm_backend = "openai_compat"
         self.llm_model = str(model_name)
@@ -273,6 +275,7 @@ class LangGraphLLMTreeDriver(LangGraphTreeDriver):
         )
         self.request_retries = max(int(request_retries), 0)
         self.retry_backoff_seconds = max(float(retry_backoff_seconds), 0.0)
+        self.retry_backoff_max_seconds = max(float(retry_backoff_max_seconds), 0.0)
         self._llm_client = self._build_openai_compat_client()
         super().__init__(
             memory_decay=memory_decay,
@@ -395,30 +398,103 @@ class LangGraphLLMTreeDriver(LangGraphTreeDriver):
         agent_view: Mapping[str, object],
         legal_actions: list[int],
     ) -> int | None:
-        if self._llm_client is None:
-            return None
-
+        last_failure: dict[str, object] | None = None
         for attempt in range(self.request_retries + 1):
+            content: str | None = None
+            selected: int | None = None
+            current_failure: dict[str, object] | None = None
             try:
-                response = self._llm_client.chat.completions.create(
-                    model=self.llm_model,
+                content = self._request_openai_compat_completion(
                     messages=_build_llm_messages(
                         agent_id=agent_id,
                         agent_view=agent_view,
-                    ),
-                    temperature=0.0,
-                    max_tokens=OPENAI_COMPAT_BENCHMARK_MAX_TOKENS,
+                    )
                 )
-            except Exception:
-                response = None
+            except Exception as exc:
+                current_failure = {
+                    "failure_kind": "exception",
+                    "exception": exc,
+                }
 
-            content = None if response is None else self._extract_openai_compat_content(response)
-            selected = None if content is None else self._parse_action_from_content(content)
+            if content is None:
+                if current_failure is None:
+                    current_failure = {"failure_kind": "empty_response"}
+            else:
+                selected = self._parse_action_from_content(content)
+            if content is not None and (
+                selected is None or int(selected) not in legal_actions
+            ):
+                current_failure = {
+                    "failure_kind": "invalid_response",
+                    "raw_response": content,
+                }
             if selected is not None and int(selected) in legal_actions:
                 return selected
-            if attempt < self.request_retries and self.retry_backoff_seconds > 0.0:
-                time.sleep(self.retry_backoff_seconds * float(attempt + 1))
+            last_failure = current_failure
+            delay = self._retry_backoff_delay_seconds(attempt)
+            if attempt < self.request_retries and delay > 0.0:
+                time.sleep(delay)
+        if last_failure is not None:
+            self._record_decision_failure(
+                agent_id=agent_id,
+                attempt=self.request_retries,
+                failure_kind=str(last_failure["failure_kind"]),
+                legal_actions=legal_actions,
+                raw_response=last_failure.get("raw_response"),
+                exception=(
+                    last_failure.get("exception")
+                    if isinstance(last_failure.get("exception"), BaseException)
+                    else None
+                ),
+            )
         return None
+
+    def _retry_backoff_delay_seconds(self, attempt: int) -> float:
+        if self.retry_backoff_seconds <= 0.0:
+            return 0.0
+        delay = self.retry_backoff_seconds * float(2 ** max(int(attempt), 0))
+        if self.retry_backoff_max_seconds > 0.0:
+            delay = min(delay, self.retry_backoff_max_seconds)
+        return delay
+
+    def _request_openai_compat_completion(
+        self,
+        *,
+        messages: list[dict[str, str]],
+    ) -> str | None:
+        if not self.llm_model or not self.llm_base_url:
+            return None
+
+        payload = {
+            "model": self.llm_model,
+            "messages": messages,
+            **build_openai_compat_benchmark_generation_kwargs(
+                model_name=self.llm_model,
+                temperature=0.0,
+            ),
+        }
+        headers = {
+            "Content-Type": "application/json",
+        }
+        if self._llm_api_key is not None:
+            headers["Authorization"] = f"Bearer {self._llm_api_key}"
+
+        request = urllib_request.Request(
+            url=self._chat_completions_url(),
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        if self.request_timeout is None:
+            with urllib_request.urlopen(request) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        else:
+            with urllib_request.urlopen(request, timeout=self.request_timeout) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        return self._extract_openai_compat_content(response_payload)
+
+    def _chat_completions_url(self) -> str:
+        return self.llm_base_url.rstrip("/") + "/chat/completions"
 
     @staticmethod
     def _render_llm_prompt(
@@ -433,13 +509,23 @@ class LangGraphLLMTreeDriver(LangGraphTreeDriver):
 
     @staticmethod
     def _extract_openai_compat_content(response: Any) -> str | None:
-        choices = getattr(response, "choices", None)
-        if not choices:
+        if isinstance(response, Mapping):
+            choices = response.get("choices")
+        else:
+            choices = getattr(response, "choices", None)
+        if not isinstance(choices, list) or not choices:
             return None
-        message = getattr(choices[0], "message", None)
+        choice = choices[0]
+        if isinstance(choice, Mapping):
+            message = choice.get("message")
+        else:
+            message = getattr(choice, "message", None)
         if message is None:
             return None
-        content = getattr(message, "content", None)
+        if isinstance(message, Mapping):
+            content = message.get("content")
+        else:
+            content = getattr(message, "content", None)
         if isinstance(content, str):
             return content
         if isinstance(content, list):
