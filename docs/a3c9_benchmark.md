@@ -44,7 +44,7 @@ With 10 test seeds per case:
 24 cases x 10 seeds = 240 episodes
 ```
 
-The four official paradigms are `centralized`, `hierarchical`, `mediated_heterarchical_cnp`, and `holonic_hybrid`. The release framework implementations are `agentscope` and `langgraph`.
+The four official paradigms are `centralized`, `hierarchical`, `heterarchical_cnp`, and `holonic_hybrid`. The release framework implementations are `agentscope` and `langgraph`.
 
 ## Relationship To A5C12
 

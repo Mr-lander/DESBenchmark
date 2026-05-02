@@ -52,24 +52,18 @@ def test_category_b_controller_family_registry_exposes_four_authority_bound_base
     assert set(families) >= {
         "centralized_controller",
         "hierarchical_controller",
-        "mediated_heterarchical_cnp_controller",
+        "heterarchical_cnp_controller",
         "holonic_hybrid_controller",
     }
     assert families["centralized_controller"]["authority_mode"] == "centralized"
     assert families["hierarchical_controller"]["authority_mode"] == "hierarchical"
-    assert (
-        families["mediated_heterarchical_cnp_controller"]["authority_mode"]
-        == "mediated_heterarchical_cnp"
-    )
+    assert families["heterarchical_cnp_controller"]["authority_mode"] == "heterarchical_cnp"
     assert families["holonic_hybrid_controller"]["authority_mode"] == "holonic_hybrid"
 
     shared_contract = families["centralized_controller"]["dispatch_kernel_contract"]
     assert shared_contract == "shared_deterministic_coordination_kernel_v1"
     assert families["hierarchical_controller"]["dispatch_kernel_contract"] == shared_contract
-    assert (
-        families["mediated_heterarchical_cnp_controller"]["dispatch_kernel_contract"]
-        == shared_contract
-    )
+    assert families["heterarchical_cnp_controller"]["dispatch_kernel_contract"] == shared_contract
     assert families["holonic_hybrid_controller"]["dispatch_kernel_contract"] == shared_contract
 
     holonic = get_category_b_controller_family("holonic_hybrid_controller")
@@ -86,7 +80,7 @@ def test_category_b_family_builders_return_external_session_drivers_with_frozen_
     expected = {
         "centralized_controller": "category_b_centralized_controller",
         "hierarchical_controller": "category_b_hierarchical_controller",
-        "mediated_heterarchical_cnp_controller": "category_b_mediated_heterarchical_cnp_controller",
+        "heterarchical_cnp_controller": "category_b_heterarchical_cnp_controller",
         "holonic_hybrid_controller": "category_b_holonic_hybrid_controller",
     }
 
@@ -109,7 +103,7 @@ def test_category_b_external_drivers_can_step_first_two_a3c9_intercell_epochs() 
     for family_id in (
         "centralized_controller",
         "hierarchical_controller",
-        "mediated_heterarchical_cnp_controller",
+        "heterarchical_cnp_controller",
         "holonic_hybrid_controller",
     ):
         family = get_category_b_controller_family(family_id)

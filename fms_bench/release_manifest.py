@@ -19,7 +19,7 @@ OFFICIAL_A5C12_PROFILES = (
 OFFICIAL_A5C12_AUTHORITY_MODES = (
     "centralized",
     "hierarchical",
-    "mediated_heterarchical_cnp",
+    "heterarchical_cnp",
     "holonic_hybrid",
 )
 OFFICIAL_A5C12_FRAMEWORKS = (
@@ -47,6 +47,7 @@ REQUIRED_SOURCE_RELEASE_PATHS = (
     "docs/reproducibility.md",
     "docs/benchmark_seed_protocol_v1.json",
     "examples/run_tree_runtime_v2_framework_native.py",
+    "examples/run_case_shard.py",
     "examples/run_tree_runtime_v2_framework_case_shard.py",
     "fms_bench/experiment_runner.py",
     "fms_bench/v2/authority_modes.py",
@@ -128,7 +129,7 @@ def build_tree_runtime_release_manifest(
         },
         "public_entrypoints": {
             "smoke": "examples/run_tree_runtime_v2_framework_native.py",
-            "case_shard": "examples/run_tree_runtime_v2_framework_case_shard.py",
+            "case_shard": "examples/run_case_shard.py",
             "extension_guide": "docs/extension_guide.md",
         },
         "result_boundary": {

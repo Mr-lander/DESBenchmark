@@ -963,14 +963,14 @@ def test_tree_runtime_env_area_accountability_after_reject_escalates_back_to_pla
 
 
 def test_tree_runtime_env_mediated_cnp_area_payload_exposes_bid_award_semantics() -> None:
-    env = make_tree_runtime_env(authority_mode="mediated_heterarchical_cnp")
+    env = make_tree_runtime_env(authority_mode="heterarchical_cnp")
     try:
         env.reset(seed=13)
         env.step_dict({"plant": 0})
 
         payload = build_controller_payload(env, "area_0")
 
-        assert payload["authority_mode"]["mode_id"] == "mediated_heterarchical_cnp"
+        assert payload["authority_mode"]["mode_id"] == "heterarchical_cnp"
         assert payload["action_semantics"]["action_type"] == "award_bid"
         assert payload["local_subtree_state"]["candidate_bids"]
         assert [bid["cell_id"] for bid in payload["local_subtree_state"]["candidate_bids"]] == [0, 1]
@@ -983,7 +983,7 @@ def test_tree_runtime_env_mediated_cnp_area_payload_exposes_bid_award_semantics(
 
 
 def test_tree_runtime_env_mediated_cnp_reject_escalates_to_plant_without_area_local_reroute() -> None:
-    env = make_tree_runtime_env(authority_mode="mediated_heterarchical_cnp")
+    env = make_tree_runtime_env(authority_mode="heterarchical_cnp")
     try:
         env.reset(seed=13)
         env.step_dict({"plant": 0})

@@ -140,10 +140,10 @@ _CATEGORY_B_CONTROLLER_FAMILIES: dict[str, CategoryBControllerFamily] = {
         reroute_policy="reject or failure goes upward; no area-local reroute",
         escalation_policy="plant revises routing after upward escalation",
     ),
-    "mediated_heterarchical_cnp_controller": CategoryBControllerFamily(
-        family_id="mediated_heterarchical_cnp_controller",
-        controller_name="category_b_mediated_heterarchical_cnp_controller",
-        authority_mode="mediated_heterarchical_cnp",
+    "heterarchical_cnp_controller": CategoryBControllerFamily(
+        family_id="heterarchical_cnp_controller",
+        controller_name="category_b_heterarchical_cnp_controller",
+        authority_mode="heterarchical_cnp",
         paradigm="Mediated Heterarchical CNP",
         routing_authority="allocation awarded from mediated cell competition",
         local_autonomy="cell can bid and reject within tree-mediated routing",

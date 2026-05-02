@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 
+_HETERARCHICAL_CNP_ALIAS = "mediated_heterarchical_cnp"
+
+
 @dataclass(frozen=True)
 class AuthorityMode:
     mode_id: str
@@ -33,8 +36,8 @@ _AUTHORITY_MODE_REGISTRY: dict[str, AuthorityMode] = {
         plant_reroute_required=True,
         mediated_bid_round_enabled=False,
     ),
-    "mediated_heterarchical_cnp": AuthorityMode(
-        mode_id="mediated_heterarchical_cnp",
+    "heterarchical_cnp": AuthorityMode(
+        mode_id="heterarchical_cnp",
         routing_authority_mode="mediated_cnp",
         cell_contract_actions="accept_reject",
         area_local_reroute_enabled=False,
@@ -53,8 +56,11 @@ _AUTHORITY_MODE_REGISTRY: dict[str, AuthorityMode] = {
 
 
 def get_authority_mode(mode_id: str) -> AuthorityMode:
+    normalized_mode_id = str(mode_id)
+    if normalized_mode_id == _HETERARCHICAL_CNP_ALIAS:
+        normalized_mode_id = "heterarchical_cnp"
     try:
-        return _AUTHORITY_MODE_REGISTRY[str(mode_id)]
+        return _AUTHORITY_MODE_REGISTRY[normalized_mode_id]
     except KeyError as exc:
         raise ValueError(f"Unknown authority mode: {mode_id}") from exc
 

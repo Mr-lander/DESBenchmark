@@ -6,17 +6,17 @@ Paradigms are defined in `fms_bench/v2/authority_modes.py`. They are benchmark-l
 | --- | --- | --- | --- | --- | --- |
 | `centralized` | `centralized` | `accept_only` | false | false | false |
 | `hierarchical` | `hierarchical` | `accept_only` | false | true | false |
-| `mediated_heterarchical_cnp` | `mediated_cnp` | `accept_reject` | false | false | true |
+| `heterarchical_cnp` | `mediated_cnp` | `accept_reject` | false | false | true |
 | `holonic_hybrid` | `holonic_hybrid` | `accept_reject` | true | false | false |
 
 ## Interpretation
 
 - `centralized`: plant-level centralized routing; cells only accept assigned contracts.
 - `hierarchical`: layered plant/area routing; plant reroute is the required escalation path.
-- `mediated_heterarchical_cnp`: mediated contract-net style routing; cells can accept or reject and a mediated bid round is enabled.
+- `heterarchical_cnp`: mediated contract-net style routing; cells can accept or reject and a mediated bid round is enabled.
 - `holonic_hybrid`: hybrid holonic routing; cells can accept or reject and area-local reroute is enabled.
 
-These descriptions are direct summaries of the fields in `AuthorityMode`. Do not rename or reinterpret these modes in result tables without updating the code and documentation together.
+These descriptions are direct summaries of the fields in `AuthorityMode`. The legacy alias `mediated_heterarchical_cnp` remains accepted for backward compatibility, but public docs and released result tables should use `heterarchical_cnp`.
 
 ## Implementation Boundary
 

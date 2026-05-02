@@ -63,7 +63,7 @@ Required registration points:
 - Export the new driver in `fms_bench/v2/framework_drivers/__init__.py`.
 - Add an optional dependency/environment entry in `fms_bench/v2/framework_envs.py` if the framework has a native package.
 - Add the framework key to `FRAMEWORK_CHOICES`, `_build_driver(...)`, and `_build_llm_driver(...)` in `examples/run_tree_runtime_v2_framework_native.py`.
-- Add the key to `examples/run_tree_runtime_v2_framework_case_shard.py` if explicit case shards should support it.
+- Add the key to `examples/run_case_shard.py` if explicit case shards should support it. Keep `examples/run_tree_runtime_v2_framework_case_shard.py` working as the compatibility entry point.
 - Add tests for no-key execution, strict dependency behavior, LLM argument threading, and decision audit fields.
 
 For LLM-backed adapters, keep the same prompt and output schema unless the experiment explicitly studies prompt variation. The current valid response surface is one JSON object:

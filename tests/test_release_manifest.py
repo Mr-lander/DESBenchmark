@@ -34,7 +34,7 @@ def test_a5c12_release_manifest_builds_and_validates(tmp_path) -> None:
         "authority_modes": [
             "centralized",
             "hierarchical",
-            "mediated_heterarchical_cnp",
+            "heterarchical_cnp",
             "holonic_hybrid",
         ],
         "frameworks": ["agentscope", "langgraph"],

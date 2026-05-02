@@ -16,7 +16,7 @@ This source package includes:
 
 - A shared event-driven scheduling runtime with Plant, Area, and Cell decision roles.
 - The headline A5C12 inter-cell suite and an included A3C9 standard suite.
-- Four official coordination paradigms: `centralized`, `hierarchical`, `mediated_heterarchical_cnp`, and `holonic_hybrid`.
+- Four official coordination paradigms: `centralized`, `hierarchical`, `heterarchical_cnp`, and `holonic_hybrid`.
 - Framework-backed controller adapters for the formal A5C12 matrix: `agentscope` and `langgraph`.
 - Focused tests, no-key smoke runs, extension docs, and minimal public fixture data.
 
@@ -49,7 +49,7 @@ In this repository those conventions map to `suite/profile`, `paradigm`, `framew
 Main runnable entry points:
 
 - `examples/run_tree_runtime_v2_framework_native.py`: run a suite through one framework-backed controller line.
-- `examples/run_tree_runtime_v2_framework_case_shard.py`: run explicit case shards into a shared output root.
+- `examples/run_case_shard.py`: run explicit case shards into a shared output root.
 - `examples/run_tree_runtime_v2_category_b.py`: Category B utilities retained for compatibility and review.
 
 ## Installation
@@ -129,7 +129,7 @@ For full reporting, remove debug limits such as `--case-limit` and `--seed-limit
 - topology: `tree_a5_c12`
 - composition: `brandimarte_ordertrap_twelve_cell`
 - profiles: `branch_pressure_k4_tm115_bk4`, `cluster_pull_k4_tm120_bk4`, `late_commit_soft_k4_tm125_bk4`
-- paradigms: `centralized`, `hierarchical`, `mediated_heterarchical_cnp`, `holonic_hybrid`
+- paradigms: `centralized`, `hierarchical`, `heterarchical_cnp`, `holonic_hybrid`
 - formal frameworks: `agentscope`, `langgraph`
 
 For one LLM/controller line:
@@ -151,7 +151,7 @@ With 10 test seeds per case:
 - topology: `tree_a3_c9`
 - composition: `brandimarte_ordertrap_nine_cell`
 - profiles: `balanced_branching_anchor`, `cross_area_tradeoff`, `late_stage_reversal`
-- paradigms: `centralized`, `hierarchical`, `mediated_heterarchical_cnp`, `holonic_hybrid`
+- paradigms: `centralized`, `hierarchical`, `heterarchical_cnp`, `holonic_hybrid`
 - formal frameworks: `agentscope`, `langgraph`
 
 It has the same 24-case per-model shape as A5C12, but it is a separate suite and should be reported with `suite_id=intercell_a3c9_wide`.

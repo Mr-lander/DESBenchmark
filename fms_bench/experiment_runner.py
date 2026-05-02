@@ -131,7 +131,7 @@ DEFAULT_INTERCELL_AUTHORITY_MODE = 'holonic_hybrid'
 MAINLINE_CATEGORY_B_AUTHORITY_MODES = (
     'centralized',
     'hierarchical',
-    'mediated_heterarchical_cnp',
+    'heterarchical_cnp',
     'holonic_hybrid',
 )
 

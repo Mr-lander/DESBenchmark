@@ -22,7 +22,7 @@ The paper comparison is about the coordination paradigm, not about making one fr
 | Formal framework implementations | `fms_bench/v2/framework_drivers/agentscope_driver.py`, `fms_bench/v2/framework_drivers/langgraph_driver.py` |
 | Shared LLM prompt surface | `fms_bench/v2/framework_drivers/llm_prompting.py` |
 | Main one-line runner | `examples/run_tree_runtime_v2_framework_native.py` |
-| Explicit case-shard runner | `examples/run_tree_runtime_v2_framework_case_shard.py` |
+| Explicit case-shard runner | `examples/run_case_shard.py` |
 
 ## Add A New Suite Or Profile
 
@@ -82,7 +82,7 @@ Minimum implementation checklist:
 7. Export the driver in `fms_bench/v2/framework_drivers/__init__.py`.
 8. Add a `FrameworkEnvSpec` in `fms_bench/v2/framework_envs.py` if the framework has an optional native package or separate uv environment.
 9. Register the key in `FRAMEWORK_CHOICES`, `_build_driver(...)`, and `_build_llm_driver(...)` in `examples/run_tree_runtime_v2_framework_native.py`.
-10. Register the same key in `examples/run_tree_runtime_v2_framework_case_shard.py` if case-sharded runs should support it.
+10. Register the same key in `examples/run_case_shard.py` if case-sharded runs should support it, and keep `examples/run_tree_runtime_v2_framework_case_shard.py` as a compatibility shim.
 11. Add tests that cover no-key execution, strict-framework dependency behavior, LLM argument threading, decision-source audit counts, and invalid-response fallback behavior.
 
 The formal A5C12 matrix uses only `agentscope` and `langgraph`. Additional adapters can be useful for reproducibility and external comparison, but they should be reported as extension experiments unless the evaluation matrix is explicitly updated.

@@ -79,7 +79,7 @@ $env:OPENAI_API_KEY = "<provider-token>"
 uv run python examples/run_tree_runtime_v2_framework_native.py `
   --framework agentscope `
   --suite intercell_a5c12_harder `
-  --authority-mode mediated_heterarchical_cnp `
+  --authority-mode heterarchical_cnp `
   --case-limit 1 `
   --seed-limit 1 `
   --llm-backend openai_compat `
@@ -121,7 +121,7 @@ For one LLM, run both formal frameworks and all four official authority modes ov
 
 ```text
 framework in {agentscope, langgraph}
-authority-mode in {centralized, hierarchical, mediated_heterarchical_cnp, holonic_hybrid}
+authority-mode in {centralized, hierarchical, heterarchical_cnp, holonic_hybrid}
 profiles expanded by suite builder = branch_pressure, cluster_pull, late_commit_soft
 test seeds from docs/benchmark_seed_protocol_v1.json
 ```
@@ -134,7 +134,7 @@ The included A3C9 suite has the same per-model matrix shape:
 
 ```text
 framework in {agentscope, langgraph}
-authority-mode in {centralized, hierarchical, mediated_heterarchical_cnp, holonic_hybrid}
+authority-mode in {centralized, hierarchical, heterarchical_cnp, holonic_hybrid}
 profiles expanded by suite builder = balanced_branching_anchor, cross_area_tradeoff, late_stage_reversal
 test seeds from docs/benchmark_seed_protocol_v1.json
 ```

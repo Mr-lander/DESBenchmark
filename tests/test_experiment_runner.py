@@ -2188,13 +2188,13 @@ def test_framework_native_runner_threads_authority_modes_into_a5c12_harder_build
             "--authority-mode",
             "centralized",
             "--authority-mode",
-            "mediated_heterarchical_cnp",
+            "heterarchical_cnp",
         ]
     )
     script_module._build_suite_from_args(args, suite_builders=suite_builders)
 
     assert captured["repo_root"] == PROJECT_ROOT
-    assert captured["authority_modes"] == ("centralized", "mediated_heterarchical_cnp")
+    assert captured["authority_modes"] == ("centralized", "heterarchical_cnp")
 
 
 def test_framework_native_runner_threads_authority_modes_into_a5c12_harder_candidate_builder() -> None:
@@ -3241,7 +3241,7 @@ def test_build_tree_runtime_v2_intercell_a3c9_wide_suite_surfaces_main_release_p
     expected_authority_modes = {
         "centralized",
         "hierarchical",
-        "mediated_heterarchical_cnp",
+        "heterarchical_cnp",
         "holonic_hybrid",
     }
 
@@ -3316,7 +3316,7 @@ def test_build_tree_runtime_v2_intercell_a3c9_dynamics_suite_surfaces_deprecated
     expected_authority_modes = {
         "centralized",
         "hierarchical",
-        "mediated_heterarchical_cnp",
+        "heterarchical_cnp",
         "holonic_hybrid",
     }
 
@@ -3465,7 +3465,7 @@ def test_build_tree_runtime_v2_intercell_a3c9_nightmare_suite_surfaces_appendix_
     expected_authority_modes = {
         "centralized",
         "hierarchical",
-        "mediated_heterarchical_cnp",
+        "heterarchical_cnp",
         "holonic_hybrid",
     }
 
@@ -3572,7 +3572,7 @@ def test_build_tree_runtime_v2_intercell_a5c12_harder_candidates_suite_exposes_s
     assert {case.authority_mode_id for case in suite} == {
         "centralized",
         "hierarchical",
-        "mediated_heterarchical_cnp",
+        "heterarchical_cnp",
         "holonic_hybrid",
     }
 
