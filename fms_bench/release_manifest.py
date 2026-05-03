@@ -46,14 +46,12 @@ REQUIRED_SOURCE_RELEASE_PATHS = (
     "docs/extension_guide.md",
     "docs/reproducibility.md",
     "docs/benchmark_seed_protocol_v1.json",
-    "examples/run_tree_runtime_v2_framework_native.py",
-    "examples/run_case_shard.py",
-    "examples/run_tree_runtime_v2_framework_case_shard.py",
+    "examples/run_suite.py",
+    "examples/run_case.py",
+    "examples/run_mas.py",
+    "examples/custom_paradigm.py",
     "fms_bench/experiment_runner.py",
-    "fms_bench/v2/authority_modes.py",
-    "fms_bench/v2/framework_drivers/base.py",
-    "fms_bench/v2/framework_drivers/agentscope_driver.py",
-    "fms_bench/v2/framework_drivers/langgraph_driver.py",
+    "fms_bench/paradigms.py",
 )
 
 
@@ -128,8 +126,10 @@ def build_tree_runtime_release_manifest(
             },
         },
         "public_entrypoints": {
-            "smoke": "examples/run_tree_runtime_v2_framework_native.py",
-            "case_shard": "examples/run_case_shard.py",
+            "smoke": "examples/run_suite.py",
+            "case_shard": "examples/run_case.py",
+            "mas_runner": "examples/run_mas.py",
+            "custom_paradigm_example": "examples/custom_paradigm.py",
             "extension_guide": "docs/extension_guide.md",
         },
         "result_boundary": {

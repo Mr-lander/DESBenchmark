@@ -61,6 +61,7 @@ from .release_manifest import (
     build_tree_runtime_release_manifest,
     validate_tree_runtime_release_manifest,
 )
+from .paradigms import AuthorityMode, get_authority_mode, list_authority_modes, register_authority_mode
 from .suite_builder import build_plant_assembly, build_tree_area_mapping
 from .trace_figures import TraceFigureArtifactPaths, build_trace_publication_figures
 from .v2 import (
@@ -112,16 +113,20 @@ from .v2 import (
 __all__ = [
     # Core
     "BenchmarkConfig",
+    "AuthorityMode",
     "apply_arrival_profile",
     "apply_due_date_profile",
     "apply_failure_profile",
     "apply_numeric_profile",
     "apply_setup_profile",
+    "get_authority_mode",
     "list_arrival_profiles",
     "list_due_date_profiles",
     "list_failure_profiles",
     "list_numeric_profiles",
     "list_setup_profiles",
+    "list_authority_modes",
+    "register_authority_mode",
     "InstanceData",
     "IndustrialFMS",
     "StepResult",

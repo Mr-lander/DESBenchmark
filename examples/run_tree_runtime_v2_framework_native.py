@@ -4,6 +4,7 @@ from argparse import ArgumentParser, Namespace
 import copy
 from dataclasses import replace
 from datetime import datetime
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -91,6 +92,19 @@ _PUBLIC_SUITE_HELP = (
     "Suite surface to run. Official Category B A3C9 public surfaces are "
     f"`{OFFICIAL_CATEGORY_B_A3C9_SUITES[0]}` and `{OFFICIAL_CATEGORY_B_A3C9_SUITES[1]}`."
 )
+
+
+def _load_paradigm_module(module_path: Path) -> None:
+    module_file = Path(module_path)
+    if not module_file.exists():
+        raise SystemExit(f"Paradigm module does not exist: {module_file}")
+    module_name = f"desbench_user_paradigm_{abs(hash(str(module_file.resolve())))}"
+    spec = importlib.util.spec_from_file_location(module_name, module_file)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"Unable to load paradigm module: {module_file}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
 
 
 def _build_driver(framework_key: str, *, strict_framework: bool) -> object:
@@ -319,14 +333,25 @@ def _parse_args(argv: list[str] | None = None) -> object:
     parser.add_argument(
         "--authority-mode",
         action="append",
-        choices=sorted(MAINLINE_CATEGORY_B_AUTHORITY_MODES),
         default=None,
         help=(
-            "Optional authority-mode filter for authority-expanded Category B A3C9 suites. "
-            "Repeat to pass multiple modes."
+            "Optional paradigm filter for authority-expanded inter-cell suites. "
+            "Repeat to pass multiple modes. Official values are centralized, "
+            "hierarchical, heterarchical_cnp, and holonic_hybrid."
+        ),
+    )
+    parser.add_argument(
+        "--paradigm-module",
+        type=Path,
+        default=None,
+        help=(
+            "Optional Python file that registers an extension paradigm before "
+            "--authority-mode is resolved. See examples/custom_paradigm.py."
         ),
     )
     args = parser.parse_args(argv)
+    if args.paradigm_module is not None:
+        _load_paradigm_module(Path(args.paradigm_module))
     suite_id = str(args.suite)
     if suite_id not in SUITE_BUILDERS and suite_id not in _DEPRECATED_SUITE_ALIAS_MAP:
         parser.error(f"Unsupported suite: {suite_id}")

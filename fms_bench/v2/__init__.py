@@ -1,7 +1,7 @@
 """Real holonic runtime path for the NeurIPS-facing benchmark."""
 
 from .area_runtime import AreaDecision, AreaRuntime, EscalationRecord, SettlementRecord
-from .authority_modes import AuthorityMode, get_authority_mode, list_authority_modes
+from .authority_modes import AuthorityMode, get_authority_mode, list_authority_modes, register_authority_mode
 from .cell_runtime import CellAction, CellDecision, CellRuntime
 from .category_b_controller_families import (
     CategoryBControllerFamily,
@@ -122,6 +122,7 @@ __all__ = [
     "PromptControllerPolicy",
     "RewardBreakdown",
     "ReinforceTreeDriver",
+    "register_authority_mode",
     "RoleRoutedExternalDriver",
     "RolePolicyRouter",
     "RuntimeLedger",

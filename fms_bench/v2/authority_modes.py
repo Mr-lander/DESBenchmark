@@ -65,5 +65,16 @@ def get_authority_mode(mode_id: str) -> AuthorityMode:
         raise ValueError(f"Unknown authority mode: {mode_id}") from exc
 
 
+def register_authority_mode(mode: AuthorityMode, *, replace: bool = False) -> None:
+    """Register a paradigm for the current Python process."""
+
+    mode_id = str(mode.mode_id)
+    if not mode_id:
+        raise ValueError("AuthorityMode.mode_id must not be empty")
+    if mode_id in _AUTHORITY_MODE_REGISTRY and not replace:
+        raise ValueError(f"Authority mode already registered: {mode_id}")
+    _AUTHORITY_MODE_REGISTRY[mode_id] = mode
+
+
 def list_authority_modes() -> list[dict[str, object]]:
     return [mode.to_dict() for mode in _AUTHORITY_MODE_REGISTRY.values()]

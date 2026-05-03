@@ -49,9 +49,14 @@ def _parse_args(argv: list[str] | None = None) -> object:
     parser.add_argument(
         "--authority-mode",
         action="append",
-        choices=sorted(MAINLINE_CATEGORY_B_AUTHORITY_MODES),
         default=None,
         help="Optional suite authority filter before case-id selection.",
+    )
+    parser.add_argument(
+        "--paradigm-module",
+        type=Path,
+        default=None,
+        help="Optional Python file that registers an extension paradigm before case selection.",
     )
     parser.add_argument("--strict-framework", action="store_true")
     parser.add_argument(
@@ -81,6 +86,10 @@ def _parse_args(argv: list[str] | None = None) -> object:
         help="Skip any selected case whose summary already exists under output-dir.",
     )
     args = parser.parse_args(argv)
+    if args.paradigm_module is not None:
+        from examples.run_tree_runtime_v2_framework_native import _load_paradigm_module
+
+        _load_paradigm_module(Path(args.paradigm_module))
     if args.strict_real_llm and args.real_llm_response_backed:
         raise SystemExit(
             "--strict-real-llm and --real-llm-response-backed are mutually exclusive"

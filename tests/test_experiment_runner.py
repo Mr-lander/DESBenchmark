@@ -2238,6 +2238,45 @@ def test_framework_native_runner_threads_authority_modes_into_a5c12_harder_candi
     assert captured["authority_modes"] == ("hierarchical", "holonic_hybrid")
 
 
+def test_public_suite_runner_loads_custom_paradigm_module(tmp_path) -> None:
+    from examples.run_tree_runtime_v2_framework_native import _parse_args
+    from fms_bench.v2.authority_modes import get_authority_mode
+
+    module_path = tmp_path / "my_paradigm.py"
+    module_path.write_text(
+        "\n".join(
+            [
+                "from fms_bench.paradigms import AuthorityMode, register_authority_mode",
+                "register_authority_mode(AuthorityMode(",
+                "    mode_id='pytest_runner_hybrid',",
+                "    routing_authority_mode='holonic_hybrid',",
+                "    cell_contract_actions='accept_reject',",
+                "    area_local_reroute_enabled=True,",
+                "    plant_reroute_required=False,",
+                "    mediated_bid_round_enabled=True,",
+                "))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    args = _parse_args(
+        [
+            "--framework",
+            "langgraph",
+            "--suite",
+            "intercell_a5c12_harder",
+            "--paradigm-module",
+            str(module_path),
+            "--authority-mode",
+            "pytest_runner_hybrid",
+        ]
+    )
+
+    assert args.authority_mode == ["pytest_runner_hybrid"]
+    assert get_authority_mode("pytest_runner_hybrid").mediated_bid_round_enabled is True
+
+
 def test_subprocess_mas_runner_threads_profile_args_into_suite_builder() -> None:
     import examples.run_tree_runtime_v2_subprocess_mas as script_module
 

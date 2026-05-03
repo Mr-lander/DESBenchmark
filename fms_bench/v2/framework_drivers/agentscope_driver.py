@@ -516,12 +516,20 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
             selected: int | None = None
             current_failure: dict[str, object] | None = None
             try:
-                response_text = await self._request_openai_compat_completion_async(
-                    messages=_build_llm_messages(
+                if self._llm_model is not None:
+                    response = await self._invoke_llm_model(
+                        llm_model=self._llm_model,
                         agent_id=agent_id,
                         agent_view=agent_view,
                     )
-                )
+                    response_text = _extract_chat_text(response)
+                else:
+                    response_text = await self._request_openai_compat_completion_async(
+                        messages=_build_llm_messages(
+                            agent_id=agent_id,
+                            agent_view=agent_view,
+                        )
+                    )
                 if not response_text:
                     current_failure = {"failure_kind": "empty_response"}
                 else:
@@ -687,7 +695,7 @@ class AgentScopeLLMTreeDriver(AgentScopeTreeDriver):
         )
 
     def _llm_configured(self) -> bool:
-        return bool(self.model_name) and bool(self.base_url)
+        return self._llm_model is not None or (bool(self.model_name) and bool(self.base_url))
 
     def _build_llm_model(self) -> Any:
         from agentscope.model import OpenAIChatModel

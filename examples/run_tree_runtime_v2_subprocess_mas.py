@@ -14,20 +14,26 @@ from fms_bench import (
     SubprocessExternalControllerDriver,
 )
 from fms_bench.experiment_runner import (
+    build_tree_runtime_v2_intercell_a5c12_harder_suite,
+    build_tree_runtime_v2_intercell_a3c9_wide_suite,
     build_tree_runtime_v2_ladder_suite,
     build_tree_runtime_v2_pilot_suite,
     build_tree_runtime_v2_small_suite,
     build_tree_runtime_v2_wide_suite,
     run_experiment_suite,
 )
+from examples.run_tree_runtime_v2_framework_native import _load_paradigm_module
 
 
 SUITE_BUILDERS = {
     "small": build_tree_runtime_v2_small_suite,
+    "intercell_a3c9_wide": build_tree_runtime_v2_intercell_a3c9_wide_suite,
+    "intercell_a5c12_harder": build_tree_runtime_v2_intercell_a5c12_harder_suite,
     "pilot": build_tree_runtime_v2_pilot_suite,
     "wide": build_tree_runtime_v2_wide_suite,
     "ladder": build_tree_runtime_v2_ladder_suite,
 }
+CATEGORY_B_SUITE_IDS = frozenset(("intercell_a3c9_wide", "intercell_a5c12_harder"))
 
 
 def _parse_args(argv: list[str] | None = None) -> object:
@@ -76,7 +82,25 @@ def _parse_args(argv: list[str] | None = None) -> object:
         required=True,
         help="Subprocess command that reads one decision JSON line and prints one action JSON line.",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--authority-mode",
+        action="append",
+        default=None,
+        help=(
+            "Optional paradigm filter for authority-expanded inter-cell suites. "
+            "Repeat to pass multiple modes."
+        ),
+    )
+    parser.add_argument(
+        "--paradigm-module",
+        type=Path,
+        default=None,
+        help="Optional Python file that registers an extension paradigm before --authority-mode is resolved.",
+    )
+    args = parser.parse_args(argv)
+    if args.paradigm_module is not None:
+        _load_paradigm_module(Path(args.paradigm_module))
+    return args
 
 
 def _limit_suite(cases: list[object], *, case_limit: int | None, seed_limit: int | None) -> list[object]:
@@ -104,10 +128,15 @@ def _build_suite_from_args(
 ) -> list[object]:
     builders = suite_builders or SUITE_BUILDERS
     builder = builders[str(args.suite)]
+    builder_kwargs = {
+        "numeric_profile_id": getattr(args, "numeric_profile", None),
+        "due_date_profile_id": getattr(args, "due_date_profile", None),
+    }
+    if str(args.suite) in CATEGORY_B_SUITE_IDS and getattr(args, "authority_mode", None):
+        builder_kwargs["authority_modes"] = tuple(str(mode) for mode in args.authority_mode)
     return builder(
         PROJECT_ROOT,
-        numeric_profile_id=getattr(args, "numeric_profile", None),
-        due_date_profile_id=getattr(args, "due_date_profile", None),
+        **builder_kwargs,
     )
 
 

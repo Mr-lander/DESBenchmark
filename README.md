@@ -2,13 +2,15 @@
 
 DESBench is a multi-agent coordination benchmark for shared discrete-event manufacturing scheduling. It evaluates how different coordination paradigms organize Plant, Area, and Cell decision makers over the same evolving factory state.
 
-The benchmark is designed around swappable axes:
+The public use path is linear:
 
-```text
-model/controller x framework implementation x coordination paradigm x benchmark suite/profile x seed
-```
+1. Choose a reported instance such as `A5C12-1` or `A3C9-1`.
+2. Connect a MAS runner that consumes the public decision payload.
+3. Return one legal action for every active agent at each decision epoch.
+4. Optionally register a new coordination paradigm id.
+5. Run the same instance and seed split for the official paradigms and for your method.
 
-The main experimental variable is the coordination paradigm, also called the authority mode or protocol `Gamma` in the paper. Frameworks such as AgentScope and LangGraph are implementation carriers over the same benchmark-visible controller payload. A benchmark suite such as A5C12 is an instance family; it can be replaced or extended without changing the paradigm/framework abstraction.
+The main experimental variable is the coordination paradigm, also called protocol `Gamma` in the paper. Frameworks such as AgentScope and LangGraph are optional implementation carriers over the same benchmark-visible controller payload. A benchmark suite such as A5C12 is an instance family supplied by DESBench; ordinary users do not need to create new instances to compare a MAS design.
 
 ## What Is Included
 
@@ -16,8 +18,9 @@ This source package includes:
 
 - A shared event-driven scheduling runtime with Plant, Area, and Cell decision roles.
 - The headline A5C12 inter-cell suite and an included A3C9 standard suite.
+- The paper-level reported-instance mapping used by the public evaluation appendix.
 - Four official coordination paradigms: `centralized`, `hierarchical`, `heterarchical_cnp`, and `holonic_hybrid`.
-- Framework-backed controller adapters for the formal A5C12 matrix: `agentscope` and `langgraph`.
+- Framework-backed controller adapters for compatibility with the reported runs: `agentscope` and `langgraph`.
 - Focused tests, no-key smoke runs, extension docs, and minimal public fixture data.
 
 This repository does not include paper result CSVs, raw provider traces, long run logs, virtual environments, or private orchestration state. Generated run artifacts should stay outside git until reviewed.
@@ -31,7 +34,7 @@ The README structure follows common agent/MAS benchmark conventions:
 - AutoGenBench-style separation between running, tabulating/reviewing, and trace/result artifacts.
 - MultiAgentBench and BattleAgentBench-style emphasis on multi-agent coordination protocols, fine-grained task axes, and collaboration/competition diagnostics.
 
-In this repository those conventions map to `suite/profile`, `paradigm`, `framework`, `controller/model`, and `seed`.
+In this repository those conventions are exposed through reported instances, paradigm ids, public controller payloads, and reviewed output artifacts.
 
 ## Repository Map
 
@@ -41,16 +44,17 @@ In this repository those conventions map to `suite/profile`, `paradigm`, `framew
 | Understand available suites/profiles | [docs/suites.md](docs/suites.md) |
 | Understand A5C12 | [docs/a5c12_benchmark.md](docs/a5c12_benchmark.md) |
 | Understand A3C9 | [docs/a3c9_benchmark.md](docs/a3c9_benchmark.md) |
-| Understand paradigms / authority modes | [docs/paradigms.md](docs/paradigms.md), `fms_bench/v2/authority_modes.py` |
-| Understand framework adapters | [docs/framework_adapters.md](docs/framework_adapters.md), `fms_bench/v2/framework_drivers/base.py` |
-| Add a suite, paradigm, framework, or controller | [docs/extension_guide.md](docs/extension_guide.md) |
+| Understand paradigms | [docs/paradigms.md](docs/paradigms.md) |
+| Understand implementation carriers | [docs/framework_adapters.md](docs/framework_adapters.md) |
+| Connect a MAS runner or add a paradigm | [docs/extension_guide.md](docs/extension_guide.md) |
 | Install, smoke test, and run experiments | [docs/reproducibility.md](docs/reproducibility.md) |
 
 Main runnable entry points:
 
-- `examples/run_tree_runtime_v2_framework_native.py`: run a suite through one framework-backed controller line.
-- `examples/run_case_shard.py`: run explicit case shards into a shared output root.
-- `examples/run_tree_runtime_v2_category_b.py`: Category B utilities retained for compatibility and review.
+- `examples/run_suite.py`: run one full suite surface through one MAS runner or controller line.
+- `examples/run_case.py`: rerun explicit reported cases into a shared output root and recover the partial suite summary.
+- `examples/run_mas.py`: run a user-provided MAS or controller process over the public JSONL decision interface.
+- `examples/custom_paradigm.py`: minimal extension module showing how to register a new coordination paradigm.
 
 ## Installation
 
@@ -89,7 +93,7 @@ uv run pytest tests/test_experiment_runner.py -q
 Run a no-key A5C12 smoke case:
 
 ```bash
-uv run python examples/run_tree_runtime_v2_framework_native.py \
+uv run python examples/run_suite.py \
   --framework langgraph \
   --suite intercell_a5c12_harder \
   --authority-mode holonic_hybrid \
@@ -99,6 +103,16 @@ uv run python examples/run_tree_runtime_v2_framework_native.py \
 
 The default `--llm-backend none` path does not call any provider.
 
+Connect a MAS process through the public decision payload:
+
+```bash
+uv run python examples/run_mas.py \
+  --suite small \
+  --case-limit 1 \
+  --seed-limit 1 \
+  --controller-command uv run python examples/subprocess_mask_first_controller.py
+```
+
 ## Run A Real Provider
 
 Real LLM runs use an OpenAI-compatible chat backend. Keep credentials in environment variables, not checked-in files.
@@ -107,7 +121,7 @@ PowerShell:
 
 ```powershell
 $env:OPENAI_API_KEY = "<provider-token>"
-uv run python examples/run_tree_runtime_v2_framework_native.py `
+uv run python examples/run_suite.py `
   --framework langgraph `
   --suite intercell_a5c12_harder `
   --authority-mode centralized `
@@ -120,7 +134,7 @@ uv run python examples/run_tree_runtime_v2_framework_native.py `
   --llm-retry-backoff-max-seconds 60
 ```
 
-For full reporting, remove debug limits such as `--case-limit` and `--seed-limit`, then review the exported suite summary and framework decision audit fields.
+For full reporting, remove debug limits such as `--case-limit` and `--seed-limit`, then review the exported suite summary and decision audit fields.
 
 ## Headline Release Surface: A5C12
 
@@ -130,19 +144,9 @@ For full reporting, remove debug limits such as `--case-limit` and `--seed-limit
 - composition: `brandimarte_ordertrap_twelve_cell`
 - profiles: `branch_pressure_k4_tm115_bk4`, `cluster_pull_k4_tm120_bk4`, `late_commit_soft_k4_tm125_bk4`
 - paradigms: `centralized`, `hierarchical`, `heterarchical_cnp`, `holonic_hybrid`
-- formal frameworks: `agentscope`, `langgraph`
+- compatibility carriers used in the paper runs: `agentscope`, `langgraph`
 
-For one LLM/controller line:
-
-```text
-3 profiles x 4 paradigms x 2 frameworks = 24 cases
-```
-
-With 10 test seeds per case:
-
-```text
-24 cases x 10 seeds = 240 episodes
-```
+For a new MAS design, start with one reported A5C12 instance, run it against the official paradigms and your proposed paradigm, then expand to the remaining reported instances after the runner passes audit checks.
 
 ## Included Standard Suite: A3C9
 
@@ -152,20 +156,40 @@ With 10 test seeds per case:
 - composition: `brandimarte_ordertrap_nine_cell`
 - profiles: `balanced_branching_anchor`, `cross_area_tradeoff`, `late_stage_reversal`
 - paradigms: `centralized`, `hierarchical`, `heterarchical_cnp`, `holonic_hybrid`
-- formal frameworks: `agentscope`, `langgraph`
+- compatibility carriers used in the paper runs: `agentscope`, `langgraph`
 
-It has the same 24-case per-model shape as A5C12, but it is a separate suite and should be reported with `suite_id=intercell_a3c9_wide`.
+It is a separate suite and should be reported with `suite_id=intercell_a3c9_wide`.
 
 See [docs/suites.md](docs/suites.md) for how A5C12 and A3C9 fit into the broader suite abstraction.
 
+## Paper Reported Instances
+
+The paper does not use a profile name alone as the public benchmark unit. The paper-facing unit is a reported instance: a fixed `suite_id` plus `profile_id` under the locked test seed split.
+
+| Paper ID | Public source id | `suite_id` | `profile_id` | Coordination stress |
+| --- | --- | --- | --- | --- |
+| `A3C9-1` | `intercell_a3c9_cross_area_tradeoff` | `intercell_a3c9_wide` | `cross_area_tradeoff` | Smaller-topology transfer with cross-area routing regret. |
+| `A5C12-1` | `intercell_a5c12_branch_pressure` | `intercell_a5c12_harder` | `branch_pressure_k4_tm115_bk4` | High routing ambiguity and early branch pressure. |
+| `A5C12-2` | `intercell_a5c12_cluster_pull` | `intercell_a5c12_harder` | `cluster_pull_k4_tm120_bk4` | Strong cluster pull and greedy-routing regret. |
+| `A5C12-3` | `intercell_a5c12_late_commit` | `intercell_a5c12_harder` | `late_commit_soft_k4_tm125_bk4` | Long-horizon commitment cost and late regret. |
+
+If you want paper-grade comparisons, keep the reported instance, runner boundary, backend/model setting, and locked seed split fixed inside the comparison block.
+
 ## Extending The Benchmark
 
-Most extensions belong to one of four layers:
+Most users only need the first two extension points:
 
-- Add a suite/profile when the environment instance, topology, disturbance profile, or difficulty surface changes.
+- Connect a MAS runner when you already have an architecture and only need it to act over DESBench payloads.
 - Add a paradigm when the research question changes authority distribution or coordination protocol `Gamma`.
-- Add a framework when the same controller contract should be realized through a new orchestration library.
-- Add a controller/model when only the action-selection policy changes.
+- Add a suite/profile only when the environment instance, topology, disturbance profile, or difficulty surface changes.
+- Add an implementation carrier only when the same controller contract must be realized through a new orchestration library.
+
+To compare a new MAS architecture as a new paradigm, start with
+`examples/custom_paradigm.py`, give the paradigm a new `mode_id`, connect your
+MAS runner to the public decision payload, and run it through the same reported
+instance, backend/model, and seed split used for the official modes. Do not
+change topology, route grammar, profile knobs, or metric definitions while
+claiming a pure paradigm comparison.
 
 See [docs/extension_guide.md](docs/extension_guide.md) for registration points, tests, and validity checks.
 
@@ -180,6 +204,17 @@ Report only completed, reviewed runs. For real-provider runs, inspect:
 - `framework_decision_failure_trace`
 
 Raw traces and run directories are intentionally gitignored. Promote only reviewed summaries into paper or release materials.
+
+## Expected Output Artifacts
+
+Every completed run should leave enough evidence to reconstruct the reported row and diagnose anomalies:
+
+- `suite_summary.csv`: suite-level summary table for a full suite run or a recovered case-shard bundle.
+- `<case_id>/summary.csv`: per-case metric summary for one reported instance under one runner/controller line.
+- `<case_id>/artifacts.csv`: manifest pointing to the exact trace files produced for that case.
+- `*_activation_trace.json`, `*_protocol_trace.json`, `*_settlement_trace.json`, `*_world_event_trace.json`: runtime traces for activation, protocol messages, settlement, and world events.
+- `framework_llm_decision_count`, `framework_fallback_contract_decision_count`, `framework_no_legal_action_count`, and `framework_decision_failure_trace`: decision-audit fields that distinguish model-backed behavior from fallback or execution failure.
+- `progress_log.jsonl` and `progress_snapshot.json`: progress and failure bookkeeping for interrupted or partially recovered runs.
 
 ## Citation
 

@@ -74,3 +74,27 @@ def test_authority_mode_lookup_rejects_unknown_mode() -> None:
         assert "Unknown authority mode" in str(exc)
     else:
         raise AssertionError("Expected ValueError for unknown authority mode")
+
+
+def test_extension_authority_mode_can_register_for_current_process() -> None:
+    from fms_bench.v2.authority_modes import (
+        AuthorityMode,
+        get_authority_mode,
+        register_authority_mode,
+    )
+
+    register_authority_mode(
+        AuthorityMode(
+            mode_id="pytest_extension_hybrid",
+            routing_authority_mode="holonic_hybrid",
+            cell_contract_actions="accept_reject",
+            area_local_reroute_enabled=True,
+            plant_reroute_required=False,
+            mediated_bid_round_enabled=True,
+        )
+    )
+
+    mode = get_authority_mode("pytest_extension_hybrid")
+
+    assert mode.mode_id == "pytest_extension_hybrid"
+    assert mode.mediated_bid_round_enabled is True

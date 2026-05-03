@@ -238,7 +238,10 @@ class FrameworkBackedTreeDriver:
     def _detect_framework_availability(self) -> bool:
         if self.python_package is None:
             return False
-        return find_spec(self.python_package) is not None
+        try:
+            return find_spec(self.python_package) is not None
+        except ModuleNotFoundError:
+            return False
 
     def _native_runtime_enabled(self) -> bool:
         return self._native_runtime is not None

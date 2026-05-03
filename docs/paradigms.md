@@ -1,44 +1,77 @@
-# Paradigms And Authority Modes
+# Paradigms
 
-Paradigms are defined in `fms_bench/v2/authority_modes.py`. They are benchmark-level authority configurations, not framework-specific features.
+In the paper, a coordination paradigm is an instantiation of protocol `Gamma`.
+In DESBench, a paradigm controls authority distribution, legal action semantics,
+and recovery paths while the suite/profile, simulator, metrics, implementation
+carrier, controller/model, and seed split stay fixed.
 
-| Paradigm | Routing Authority | Cell Contract Actions | Area Local Reroute | Plant Reroute Required | Mediated Bid Round |
+## Official Paradigms
+
+| Paradigm | Routing authority | Cell contract actions | Area local reroute | Plant reroute required | Mediated bid round |
 | --- | --- | --- | --- | --- | --- |
 | `centralized` | `centralized` | `accept_only` | false | false | false |
 | `hierarchical` | `hierarchical` | `accept_only` | false | true | false |
 | `heterarchical_cnp` | `mediated_cnp` | `accept_reject` | false | false | true |
 | `holonic_hybrid` | `holonic_hybrid` | `accept_reject` | true | false | false |
 
-## Interpretation
+Interpretation:
 
 - `centralized`: plant-level centralized routing; cells only accept assigned contracts.
 - `hierarchical`: layered plant/area routing; plant reroute is the required escalation path.
 - `heterarchical_cnp`: mediated contract-net style routing; cells can accept or reject and a mediated bid round is enabled.
 - `holonic_hybrid`: hybrid holonic routing; cells can accept or reject and area-local reroute is enabled.
 
-These descriptions are direct summaries of the fields in `AuthorityMode`. The legacy alias `mediated_heterarchical_cnp` remains accepted for backward compatibility, but public docs and released result tables should use `heterarchical_cnp`.
+The legacy alias `mediated_heterarchical_cnp` remains accepted for backward compatibility, but public docs and released result tables should use `heterarchical_cnp`.
 
-## Implementation Boundary
+## Add A New Paradigm
 
-In the paper, a paradigm is the coordination protocol `Gamma`. In this repository, the release-facing `Gamma` variants are encoded as `AuthorityMode` records. The authority mode is passed into the tree runtime and changes the protocol-conditioned interface: who can act, which actions are legal, whether rejection is exposed, and whether reroute or mediated bid behavior is enabled.
+Use a standalone extension file when your new MAS architecture can be expressed
+with the existing authority switches. Start from
+`examples/custom_paradigm.py`:
 
-The framework adapter does not define the paradigm. It receives the payload produced by the runtime under the selected authority mode and returns one legal action. This is why the formal A5C12 matrix is reported as:
+```python
+from fms_bench.paradigms import AuthorityMode, register_authority_mode
 
-```text
-model x framework implementation x paradigm x benchmark profile x seed
+register_authority_mode(
+    AuthorityMode(
+        mode_id="my_hybrid",
+        routing_authority_mode="holonic_hybrid",
+        cell_contract_actions="accept_reject",
+        area_local_reroute_enabled=True,
+        plant_reroute_required=False,
+        mediated_bid_round_enabled=True,
+    )
+)
 ```
 
-## Adding A Paradigm
+Run it with the public runner:
 
-If a new paradigm is just a new combination of the existing authority switches, add it to `_AUTHORITY_MODE_REGISTRY` in `fms_bench/v2/authority_modes.py`, then decide whether it belongs in `MAINLINE_CATEGORY_B_AUTHORITY_MODES` in `fms_bench/experiment_runner.py`.
+```bash
+uv run python examples/run_suite.py \
+  --paradigm-module examples/custom_paradigm.py \
+  --framework langgraph \
+  --suite intercell_a5c12_harder \
+  --authority-mode my_hybrid \
+  --case-limit 1 \
+  --seed-limit 1
+```
 
-If it needs new activation, message, or action semantics, the registry change is not enough. Review and test the runtime consumers:
+Use the wider runtime path only when the paradigm needs new activation,
+message, or action semantics beyond the existing switches. In that case, add
+tests for legal action masks, activation order, reroute/escalation behavior,
+and exported audit fields before reporting results.
 
-- `fms_bench/v2/tree_runtime_env.py`
-- `fms_bench/v2/area_runtime.py`
-- `fms_bench/v2/cell_runtime.py`
-- `fms_bench/v2/controller_payloads.py`
+## Valid Comparison Rule
 
-New paradigm results should be labeled as extension experiments unless the official paper matrix is deliberately revised.
+When reporting a new paradigm, keep these axes fixed inside the comparison
+block:
 
-See [extension_guide.md](extension_guide.md) for the full checklist.
+- `suite_id` and `profile_id`
+- seed split
+- implementation carrier
+- controller/model backend
+- simulator and metric definitions
+
+Do not change topology, route grammar, profile knobs, or metric definitions
+while claiming a pure paradigm comparison. Those changes define a new benchmark
+condition, not just a new coordination paradigm.
