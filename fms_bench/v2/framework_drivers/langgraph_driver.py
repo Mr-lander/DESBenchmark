@@ -315,6 +315,25 @@ class LangGraphLLMTreeDriver(LangGraphTreeDriver):
         )
         return {"action": int(action)}
 
+    def _select_framework_action(
+        self,
+        *,
+        agent_id: str,
+        agent_view: Mapping[str, object],
+    ) -> int:
+        if self._compiled_graph is not None:
+            result = self._compiled_graph.invoke(
+                {
+                    "agent_id": str(agent_id),
+                    "agent_view": dict(agent_view),
+                }
+            )
+            return int(result["action"])
+        return self._select_llm_or_contract_action(
+            agent_id=agent_id,
+            agent_view=agent_view,
+        )
+
     def _select_llm_or_contract_action(
         self,
         *,
