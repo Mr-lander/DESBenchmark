@@ -10,6 +10,11 @@ one framework win. A runner may be implemented in any MAS framework or custom
 orchestration stack, but it must receive the active agents' benchmark-visible
 payloads and return exactly one legal action for each active agent.
 
+There are two normal user paths. Path A is for users who already have a MAS and
+only need to connect it to DESBench. Path B is for users who want to expose a
+new coordination paradigm inside DESBench before running a MAS under that
+paradigm.
+
 ## Public Release Paths
 
 | Concept | Start here |
@@ -28,14 +33,14 @@ paper-facing public paths are `examples/run_suite.py`,
 `examples/run_case.py`, `examples/run_mas.py`, and
 `examples/custom_paradigm.py`.
 
-## Connect A MAS Runner
+## Path A: Bring An Existing MAS
 
 Use this path when you already have a MAS architecture and want to evaluate it
 on DESBench. Implement a runner with a `select_actions(decision)` method. The
 `decision` object contains the current time, active agent ids, supported
 execution mode, and one local public view per active Plant, Area, or Cell
-agent. Each view includes an `action_mask`. Return a mapping from active agent
-id to integer action id.
+agent. Each view includes legal actions and an `action_mask`. Return a mapping
+from active agent id to integer action id.
 
 Minimal shape:
 
@@ -65,10 +70,14 @@ uv run python examples/run_mas.py \
   --controller-command uv run python examples/subprocess_mask_first_controller.py
 ```
 
-## Add A New Paradigm
+## Path B: Configure A MAS Inside DESBench
 
-Use this path when a researcher wants to compare a new MAS coordination design
-against the official DESBench paradigms.
+Use this path when a researcher wants to compare a new MAS coordination
+paradigm against the official DESBench paradigms. A paradigm registration is a
+benchmark configuration: it tells DESBench what authority, rejection, reroute,
+negotiation, and escalation semantics to expose. It is not the whole MAS
+implementation; the MAS runner still decides how agents act under those
+semantics.
 
 1. Create a standalone Python file, for example `examples/my_paradigm.py`.
 2. Import `AuthorityMode` and `register_authority_mode`.
@@ -113,6 +122,10 @@ registry file is not enough. Update the runtime consumers in
 `tree_runtime_env.py`, `area_runtime.py`, `cell_runtime.py`, and
 `controller_payloads.py`, then add regression tests for legal action masks,
 activation order, reroute/escalation behavior, and exported audit fields.
+
+For a pure paradigm comparison, keep the reported instance, seed split, runner
+boundary, simulator dynamics, and metrics fixed. If both the paradigm and the
+MAS decision policy change, report the result as a joint system comparison.
 
 ## Add A New Suite Or Profile
 

@@ -177,19 +177,26 @@ If you want paper-grade comparisons, keep the reported instance, runner boundary
 
 ## Extending The Benchmark
 
-Most users only need the first two extension points:
+Most users should choose one of two paths.
 
-- Connect a MAS runner when you already have an architecture and only need it to act over DESBench payloads.
-- Add a paradigm when the research question changes authority distribution or coordination protocol `Gamma`.
-- Add a suite/profile only when the environment instance, topology, disturbance profile, or difficulty surface changes.
-- Add an implementation carrier only when the same controller contract must be realized through a new orchestration library.
+Path A connects an existing MAS. Use this when you already have an agent graph,
+message-passing system, learned policy, LLM controller, or custom framework.
+Run it through `examples/run_mas.py` or implement `select_actions(decision)`.
+DESBench supplies the active-agent payload and legal-action masks; your MAS
+returns one legal action for each active agent.
 
-To compare a new MAS architecture as a new paradigm, start with
-`examples/custom_paradigm.py`, give the paradigm a new `mode_id`, connect your
-MAS runner to the public decision payload, and run it through the same reported
-instance, backend/model, and seed split used for the official modes. Do not
-change topology, route grammar, profile knobs, or metric definitions while
-claiming a pure paradigm comparison.
+Path B configures a new DESBench paradigm. Use this when the research question
+changes the coordination protocol `Gamma`: authority distribution, rejection
+rights, reroute behavior, mediated bidding, or escalation. Start with
+`examples/custom_paradigm.py`, give the paradigm a new `mode_id`, connect a MAS
+runner to the public decision payload, and run the same reported instance,
+backend/model, and seed split used for the official modes.
+
+Only add a suite/profile when the environment instance, topology, disturbance
+profile, or difficulty surface changes. Only add an implementation carrier when
+the same controller contract must be realized through a new orchestration
+library. Do not change topology, route grammar, profile knobs, or metric
+definitions while claiming a pure paradigm comparison.
 
 See [docs/extension_guide.md](docs/extension_guide.md) for registration points, tests, and validity checks.
 
