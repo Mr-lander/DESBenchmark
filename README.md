@@ -225,7 +225,7 @@ Every completed run should leave enough evidence to reconstruct the reported row
 
 ## Citation
 
-If you use this benchmark before a formal citation file is added, cite the accompanying DESBench paper draft and include the repository commit hash used for your experiments.
+If you use this benchmark before a formal citation file is added, cite the accompanying DESBench paper draft and include the repository commit hash used for your experiments. Review copies should use the anonymous repository link when available.
 
 ## License
 
